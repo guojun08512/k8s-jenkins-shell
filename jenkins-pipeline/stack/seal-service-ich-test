@@ -1,0 +1,208 @@
+// stack docker build and set up
+properties([
+    parameters([
+        gitParameter(branch: '',
+                     branchFilter: 'origin/(.*)',
+                     defaultValue: 'master',
+                     description: '',
+                     name: 'BRANCH',
+                     quickFilterEnabled: false,
+                     selectedValue: 'NONE',
+                     sortMode: 'NONE',
+                     tagFilter: '*',
+                     type: 'PT_BRANCH')
+    ])
+])
+
+GIT_REMOTE="git@git.keyayun.com:keyayun/service.git"
+CODE_PATH="/home/couchbase/keyayun.com"
+SHELL_PATH="/home"
+SERVICE_NAME="service"
+
+def pullCode() {
+    ws("${CODE_PATH}/${SERVICE_NAME}"){
+        git branch: "${params.BRANCH}", url: "${GIT_REMOTE}"
+    }
+    addShortText background: 'white', border: 1, color: 'green', text: "${params.BRANCH}"
+}
+
+def buildService() {
+    withDockerContainer(args: '-v /home/pkg:/go/pkg', image: 'golang') {
+        sh "git config --global url.\"git@git.keyayun.com:\".insteadOf \"https://git.keyayun.com\" && cd ${CODE_PATH}/${SERVICE_NAME} && go mod tidy && make && make linux && ./bin/cbdeploy --gen-sample && cp -r db-config.yaml ${SHELL_PATH}/${SERVICE_NAME} && cp -r  bin ${SHELL_PATH}/${SERVICE_NAME} && cp -r assets ${SHELL_PATH}/${SERVICE_NAME} && cp -r deps/cozy/cozy-stack/scripts ${SHELL_PATH}/${SERVICE_NAME}"
+    }
+}
+
+def writeDockerfile() {
+    sh label: '', script: '''cat > Dockerfile << EOF
+FROM node:8.16.0-stretch
+COPY bin/service-stack-linux-amd64 /usr/bin/service-stack-linux-amd64
+COPY bin/cbmultideploy /usr/bin/cbmultideploy
+COPY start.sh /start.sh
+COPY multi-db-config.yaml /usr/etc/seal/multi-db-config.yaml
+COPY conf.yml /usr/etc/seal/conf.yml
+COPY deploy.sh /go/deploy.sh
+COPY update_app.sh /go/update_app.sh
+COPY install_app.sh /go/install_app.sh
+COPY assets /go/assets
+COPY scripts /go/scripts
+RUN chmod 755 /start.sh
+CMD ["/start.sh"]
+EOF
+    '''
+    sh "mv Dockerfile ${SHELL_PATH}/${SERVICE_NAME}"
+}
+
+def buildStackDocker() {
+    echo 'build docker and push docker'
+    sh label: '', script: '''cat > build.sh << EOF
+#!/bin/bash
+set -e
+date=`TZ=UTC-8 date +%Y%m%d%H%M`
+harbor_path="seal"
+name="service"
+shell_path="/home"
+docker login https://harbor.bj.keyayun.com -u jks_registry -p CuraCloud30503
+docker build -t harbor.bj.keyayun.com/\\${harbor_path}/\\${name}-k8s:\\${date} \\${shell_path}/\\${name}
+docker tag harbor.bj.keyayun.com/\\${harbor_path}/\\${name}-k8s:\\${date} harbor.bj.keyayun.com/\\${harbor_path}/\\${name}-k8s:latest
+docker push harbor.bj.keyayun.com/\\${harbor_path}/\\${name}-k8s:\\${date}
+docker push harbor.bj.keyayun.com/\\${harbor_path}/\\${name}-k8s:latest
+docker image rm harbor.bj.keyayun.com/\\${harbor_path}/\\${name}-k8s:\\${date}
+docker image rm harbor.bj.keyayun.com/\\${harbor_path}/\\${name}-k8s:latest
+docker logout
+EOF
+    '''
+    sh 'chmod +x build.sh'
+    sh 'bash build.sh'
+}
+
+
+def writePrepareShellAndSendMaster() {
+    echo 'writePrepareShellAndSendMaster'
+    sh label: '', script: '''cat > prepare.sh << EOF
+#!/bin/bash
+cd k8s/ich-test/couchbase
+#echo "del ich-minio ich-cc ich-co"
+#helm del --purge ich-minio
+#helm del --purge ich-cc
+#helm del --purge ich-co
+#helm install --namespace ich-test --name ich-minio --set mode=standalone,persistence.enabled=false,accessKey=admin,secretKey=curacloud,nodeSelector.storage=ich-minio stable/minio
+#echo "init couchbase"
+#kubectl label nodes k8s-ich-test databases=ich-couchbase --overwrite
+#helm install couchbase/couchbase-operator --namespace ich-test --name ich-co
+#helm install --values setvalue.yaml local-repo/couchbase-cluster --namespace ich-test --name ich-cc
+#kubectl apply -f capi-service.yaml
+kubectl delete -f ../stack/deployment.yaml
+kubectl apply -f ../stack/deployment.yaml
+kubectl delete -f ../stack-runner/config.yaml
+kubectl apply -f ../stack-runner/config.yaml
+kubectl delete -f ../stack-runner/ich-redis.yaml
+kubectl apply -f ../stack-runner/ich-redis.yaml
+kubectl delete -f ../stack-runner/ich-cpu-runner.yaml
+kubectl apply -f ../stack-runner/ich-cpu-runner.yaml
+kubectl delete -f ../stack-runner/ich-gpu-runner.yaml
+kubectl apply -f ../stack-runner/ich-gpu-runner.yaml
+kubectl delete -f ../stack-runner/ich-pacs.yaml
+kubectl apply -f ../stack-runner/ich-pacs.yaml
+EOF
+    '''
+    sshPublisher(publishers: [sshPublisherDesc(configName: '192.168.201.12', transfers: [sshTransfer(cleanRemote: false, excludes: '', execCommand: 'chmod +x prepare.sh && bash prepare.sh && rm -rf prepare.sh', execTimeout: 120000, flatten: false, makeEmptyDirs: false, noDefaultExcludes: false, patternSeparator: '[, ]+', remoteDirectory: '', remoteDirectorySDF: false, removePrefix: '', sourceFiles: 'prepare.sh')], usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: false)]) 
+}
+
+def installInstanceAndServices() {
+    echo 'installInstanceAndServices'
+    sh label: '', script: '''cat > install.sh << EOF
+#!/bin/bash
+sleep 30
+dockerID=""
+while true
+do
+    dockerID=\\$(docker ps | grep harbor.bj.keyayun.com/seal/service-k8s | awk '{print \\$1}' | head -n 1)
+    docker exec -t \\$dockerID bash -c "/usr/bin/service-stack-linux-amd64 -c /usr/etc/seal/conf.yml status";result=\\$?
+    echo "port status \\$result"
+    if [[ \\$result == 0 ]] ; then
+        break
+    fi
+    sleep 1
+done
+
+control="register"
+for instance in cb.ip-192-168-201-12.bj.keyayun.com:32090
+do
+  ## delete instance
+  docker exec -t \\$dockerID bash -c "/usr/bin/service-stack-linux-amd64 -c /usr/etc/seal/conf.yml instances rm --force \\$instance"
+  ## create instance
+  docker exec -t \\$dockerID bash -c "bash /go/deploy.sh \\$instance jenkins@keyayun.com"
+  ### services
+  for service in dicomparse
+  do
+     docker exec -t \\$dockerID bash -c "/usr/bin/service-stack-linux-amd64 -c /usr/etc/seal/conf.yml services \\$control --domain \\$instance \\$service http://runner-service.ich-test:8666/\\$service"
+  done
+  for service in ich
+  do
+     docker exec -t \\$dockerID bash -c "/usr/bin/service-stack-linux-amd64 -c /usr/etc/seal/conf.yml services \\$control --domain \\$instance \\$service http://gpu-runner-service.ich-test:8666/ai\\$service"
+  done
+  for service in pacs
+  do
+     docker exec -t \\$dockerID bash -c "/usr/bin/service-stack-linux-amd64 -c /usr/etc/seal/conf.yml services \\$control --domain \\$instance \\$service http://pacs-service.ich-test:8228"
+  done
+
+  for app in analysis drive ich tags
+  do
+    docker exec -t \\$dockerID bash -c "/usr/bin/service-stack-linux-amd64 -c /usr/etc/seal/conf.yml apps install \\$app --domain \\$instance registry://\\${app}"
+  done
+done
+
+EOF
+    '''
+    sshPublisher(publishers: [sshPublisherDesc(configName: '192.168.201.19', transfers: [sshTransfer(cleanRemote: false, excludes: '', execCommand: 'chmod +x install.sh && bash install.sh', execTimeout: 1200000, flatten: false, makeEmptyDirs: false, noDefaultExcludes: false, patternSeparator: '[, ]+', remoteDirectory: '', remoteDirectorySDF: false, removePrefix: '', sourceFiles: 'install.sh')], usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: false)])
+}
+
+
+
+node {
+    stage("PrePare Stack Docker") {
+        try {
+            pullCode()
+            buildService()
+            writeDockerfile()
+            buildStackDocker()            
+        } catch(e) {
+            emailext body: 'ich冒烟测试 stack编译docker失败', subject: 'ich-冒烟测试', to: 'jung@keyayun.com'
+        }
+    }
+    stage("k8s ich test prepare") {
+        try {
+           writePrepareShellAndSendMaster()   
+        } catch(e) {
+            emailext body: 'ich冒烟测试 部署失败', subject: 'ich-冒烟测试', to: 'jung@keyayun.com'
+        }
+    }
+
+    stage("install Instance and Services") {
+        try {
+            installInstanceAndServices()   
+        } catch(e) {
+             emailext body: 'ich冒烟测试 服务安装失败', subject: 'ich-冒烟测试', to: 'jung@keyayun.com,bohaoc@keyayun.com'
+        }
+    }
+
+    stage("run test") {
+        try {
+            sh "rm -rf ${CODE_PATH}/ich-test"
+            ws("${CODE_PATH}/ich-test"){
+                git branch: "master", url: "git@git.keyayun.com:jung/ich-test.git"
+            }
+            
+            withDockerContainer(args: '-v /home/pkg:/go/pkg -v /home/curacloud/0028-1:/0028-1', image: 'golang') {
+                sh "git config --global url.\"git@git.keyayun.com:\".insteadOf \"https://git.keyayun.com\" && cd ${CODE_PATH}/ich-test && go mod init keyayun.com/ich-test && go mod tidy && go build"
+                sh "${CODE_PATH}/ich-test/ich-test configure --domain cb.ip-192-168-201-12.bj.keyayun.com:32090 --scheme http"
+                sh "${CODE_PATH}/ich-test/ich-test upload /0028-1 /"
+                sh "${CODE_PATH}/ich-test/ich-test createICH --domain cb-analysis.ip-192-168-201-12.bj.keyayun.com:32090 --scheme http"
+            }
+        } catch(e) {
+            emailext body: 'ich冒烟测试 case测试没有通过', subject: 'ich-冒烟测试', to: 'jung@keyayun.com,bohaoc@keyayun.com'
+            currentBuild.result = 'FAIL'
+            result = "FAIL"
+        }
+    }
+}

@@ -1,0 +1,61 @@
+// stack docker build and set up
+properties([
+    parameters([
+        gitParameter(branch: '',
+                     branchFilter: 'origin/(.*)',
+                     defaultValue: 'master',
+                     description: '',
+                     name: 'BRANCH',
+                     quickFilterEnabled: false,
+                     selectedValue: 'NONE',
+                     sortMode: 'NONE',
+                     tagFilter: '*',
+                     type: 'PT_BRANCH')
+    ])
+])
+
+GIT_REMOTE="git@git.keyayun.com:jung/service.git"
+SERVICE_NAME="service"
+DIR_PATH="/home/couchbase/keyayun.com"
+
+def pullCode() {
+    ws("${DIR_PATH}/${SERVICE_NAME}"){
+        git branch: "${params.BRANCH}", url: "${GIT_REMOTE}"
+    }
+    addShortText background: 'white', border: 1, color: 'green', text: "${params.BRANCH}"
+}
+
+def buildService() {
+    withDockerContainer(args: '-v /home/pkg:/go/pkg', image: 'golang') {
+        sh "git config --global url.\"git@git.keyayun.com:\".insteadOf \"https://git.keyayun.com\" && cd ${DIR_PATH}/${SERVICE_NAME} && go mod tidy && make && make linux && cp -r  bin ../../service-couchdatabase/ && cp -r assets ../../service-couchdatabase/ && cp -r deps/cozy/cozy-stack/scripts ../../service-couchdatabase/"
+    }
+}
+
+def buildStackDocker() {
+    echo 'build docker and push docker'
+    sh label: '', script: '''cat > build.sh << EOF
+#!/bin/bash
+set -e
+date=`TZ=UTC-8 date +%Y%m%d%H%M`
+dir="seal"
+name="service"
+docker login https://harbor.bj.keyayun.com -u jks_registry -p CuraCloud30503
+cp /home/couchbase/service-couchdatabase/Dockerfile_Debug /home/couchbase/service-couchdatabase/Dockerfile
+docker build -t harbor.bj.keyayun.com/\\${dir}/\\${name}:\\${date} /home/couchbase/service-couchdatabase/
+docker tag harbor.bj.keyayun.com/\\${dir}/\\${name}:\\${date} harbor.bj.keyayun.com/\\${dir}/\\${name}:latest
+docker push harbor.bj.keyayun.com/\\${dir}/\\${name}:\\${date}
+docker push harbor.bj.keyayun.com/\\${dir}/\\${name}:latest
+docker image rm harbor.bj.keyayun.com/\\${dir}/\\${name}:\\${date}
+docker image rm harbor.bj.keyayun.com/\\${dir}/\\${name}:latest
+docker logout
+EOF
+    '''
+    sh 'chmod +x build.sh'
+    sh 'bash build.sh'
+}
+
+node {
+    pullCode()
+    buildService()
+    buildStackDocker()
+}

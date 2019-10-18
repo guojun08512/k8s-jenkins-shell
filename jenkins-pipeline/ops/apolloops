@@ -1,0 +1,67 @@
+properties([
+    parameters([
+        gitParameter(branch: '',
+                     branchFilter: 'origin/(.*)',
+                     defaultValue: 'dev',
+                     description: '',
+                     name: 'BRANCH',
+                     quickFilterEnabled: false,
+                     selectedValue: 'NONE',
+                     sortMode: 'NONE',
+                     tagFilter: '*',
+                     type: 'PT_BRANCH'),
+    ])
+])
+
+def pullCode(Path, Proj,GitRemote) {
+    stage('Code pull') {
+        ws("${Path}/${Proj}") {
+            git branch: "${params.BRANCH}", url: "${GitRemote}"
+        }
+    }
+}
+
+def createBranchName() {
+    addShortText(params.BRANCH)
+}
+
+def prepareDockerSources(Path, Project) {
+    stage('Yarn Install') {
+        withDockerContainer('node:8.16.0-stretch') {
+            sh "cd ${Path}/${Project}  && yarn install"
+        }
+    }
+}
+
+def buildDocker(Path) {
+    ws("${Path}") {
+        sh label: '', script: '''cat > build.sh << EOF
+#!/bin/bash
+set -e
+date=`TZ=UTC-8 date +%Y%m%d%H%M`
+dir="ops"
+name="apolloops"
+docker login https://harbor.bj.keyayun.com -u jks_registry -p CuraCloud30503
+docker build -t harbor.bj.keyayun.com/\\${dir}/\\${name}:\\${date} .
+docker tag harbor.bj.keyayun.com/\\${dir}/\\${name}:\\${date} harbor.bj.keyayun.com/\\${dir}/\\${name}:latest
+docker push harbor.bj.keyayun.com/\\${dir}/\\${name}:\\${date}
+docker push harbor.bj.keyayun.com/\\${dir}/\\${name}:latest
+docker image rm harbor.bj.keyayun.com/\\${dir}/\\${name}:\\${date}
+docker image rm harbor.bj.keyayun.com/\\${dir}/\\${name}:latest
+docker logout
+EOF
+    '''
+    sh 'chmod +x build.sh'
+    sh 'bash build.sh'
+    }
+}
+
+node {
+    Path='/home/ops/apolloops'
+    Proj='apolloops'
+    GitRemote='git@git.keyayun.com:cc/apolloops.git'
+    pullCode(Path, Proj, GitRemote)
+    createBranchName()
+    prepareDockerSources(Path, Proj)
+    buildDocker(Path)
+}

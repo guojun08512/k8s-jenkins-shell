@@ -1,0 +1,67 @@
+properties([
+    parameters([
+        gitParameter(branch: '',
+                     branchFilter: 'origin/(.*)',
+                     defaultValue: 'master',
+                     description: '',
+                     name: 'BRANCH',
+                     quickFilterEnabled: false,
+                     selectedValue: 'NONE',
+                     sortMode: 'NONE',
+                     tagFilter: '*',
+                     type: 'PT_BRANCH'),
+    ])
+])
+
+def pullCode(Path, Proj,GitRemote) {
+    stage('Code pull') {
+        ws("${Path}/${Proj}") {
+            git branch: "${params.BRANCH}", url: "${GitRemote}"
+        }
+    }
+}
+
+def createBranchName() {
+    addShortText(params.BRANCH)
+}
+
+def prepareDockerSources(Path, Project) {
+    stage('Go build') {
+        withDockerContainer(args: '-v /home/pkg:/go/pkg', image: 'golang') {
+            sh "cd ${Path}/${Project}  && if [ ! -f  \"go.mod\" ];then go mod init gohospital && go mod tidy;else go mod tidy; fi && go build -o go-hospital && cp go-hospital config.json ${Path} && cp -r template ${Path}"
+        }
+    }
+}
+
+def buildDocker(Path) {
+    ws("${Path}") {
+        sh label: '', script: '''cat > build.sh << EOF
+#!/bin/bash
+set -e
+date=`TZ=UTC-8 date +%Y%m%d%H%M`
+dir="ops"
+name="gohospital"
+docker login https://harbor.bj.keyayun.com -u jks_registry -p CuraCloud30503
+docker build -t harbor.bj.keyayun.com/\\${dir}/\\${name}:\\${date} .
+docker tag harbor.bj.keyayun.com/\\${dir}/\\${name}:\\${date} harbor.bj.keyayun.com/\\${dir}/\\${name}:latest
+docker push harbor.bj.keyayun.com/\\${dir}/\\${name}:\\${date}
+docker push harbor.bj.keyayun.com/\\${dir}/\\${name}:latest
+docker image rm harbor.bj.keyayun.com/\\${dir}/\\${name}:\\${date}
+docker image rm harbor.bj.keyayun.com/\\${dir}/\\${name}:latest
+docker logout
+EOF
+    '''
+    sh 'chmod +x build.sh'
+    sh 'bash build.sh'
+    }
+}
+
+node {
+    Path='/home/ops/gohospital'
+    Proj='gohospital'
+    GitRemote='git@git.keyayun.com:cc/gohospital.git'
+    pullCode(Path, Proj, GitRemote)
+    createBranchName()
+    prepareDockerSources(Path, Proj)
+    buildDocker(Path)
+}

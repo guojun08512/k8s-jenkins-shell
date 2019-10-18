@@ -1,0 +1,174 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: jenkins-ops
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: jenkins
+  namespace: jenkins-ops
+---
+
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  name: jenkins
+  namespace: jenkins-ops
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create","delete","get","list","patch","update","watch"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create","delete","get","list","patch","update","watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get","list","watch"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: RoleBinding
+metadata:
+  name: jenkins
+  namespace: jenkins-ops
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: jenkins
+subjects:
+  - kind: ServiceAccount
+    name: jenkins
+    namespace: jenkins-ops
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: jenkins
+  namespace: jenkins-ops
+spec:
+  template:
+    metadata:
+      labels:
+        app: jenkins
+    spec:
+      nodeName: k8s-jenkins-ops
+      terminationGracePeriodSeconds: 10
+      serviceAccountName: jenkins
+      containers:
+      - name: jenkins
+        image: harbor.bj.keyayun.com/library/jenkins
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: web
+          protocol: TCP
+        - containerPort: 50000
+          name: agent
+          protocol: TCP
+        resources:
+          limits:
+            cpu: 8000m
+            memory: 12Gi
+          requests:
+            cpu: 4000m
+            memory: 8Gi
+        livenessProbe:
+          httpGet:
+            path: /login
+            port: 8080
+          initialDelaySeconds: 60
+          timeoutSeconds: 5
+          failureThreshold: 12
+        readinessProbe:
+          httpGet:
+            path: /login
+            port: 8080
+          initialDelaySeconds: 60
+          timeoutSeconds: 5
+          failureThreshold: 12
+        volumeMounts:
+        - name: jenkinshome
+          subPath: jenkins
+          mountPath: /var/jenkins_home
+        - name: docker-bin
+          mountPath: /usr/bin/docker
+        - name: docker-sock
+          mountPath: /var/run/docker.sock
+        - name: ssh
+          mountPath: /root/.ssh
+        - name: workspace
+          mountPath: /home
+        env:
+        - name: LIMITS_MEMORY
+          valueFrom:
+            resourceFieldRef:
+              resource: limits.memory
+              divisor: 1Mi
+        - name: JAVA_OPTS
+          value: -Xmx$(LIMITS_MEMORY)m -XshowSettings:vm -Dhudson.slaves.NodeProvisioner.initialDelay=0 -Dhudson.slaves.NodeProvisioner.MARGIN=50 -Dhudson.slaves.NodeProvisioner.MARGIN0=0.85 -Duser.timezone=Asia/Shanghai
+      securityContext:
+        fsGroup: 1000
+      volumes:
+      - name: jenkinshome
+        hostPath:
+          path: /home/curacloud
+      - name: docker-sock
+        hostPath:
+          path: /var/run/docker.sock
+      - name: docker-bin
+        hostPath:
+          path: /usr/bin/docker
+          type: File
+      - name: ssh
+        hostPath:
+          path: /home/curacloud/.ssh
+      - name: workspace
+        hostPath:
+          path: /home/curacloud/jenkins_workspace
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jenkins
+  namespace: jenkins-ops
+  labels:
+    app: jenkins
+spec:
+  selector:
+    app: jenkins
+  ports:
+  - name: web
+    port: 8080
+    targetPort: web
+  - name: agent
+    port: 50000
+    targetPort: agent
+
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: ing-jenkins-service
+  namespace: jenkins-ops
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    # nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    # nginx.ingress.kubernetes.io/rewrite-target: "/"
+spec:
+  rules:
+  - http:
+      paths:
+        backend:
+          serviceName: jenkins
+          servicePort: 8080
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jenkins-services
+  namespace: ingress-nginx
+data:
+  9000: "jenkins-ops/jenkins:8080"

@@ -1,0 +1,116 @@
+helm install --values co-value.yaml couchbase/couchbase-operator --namespace couchbase --name co
+helm upgrade co --values co-value.yaml couchbase/couchbase-operator --namespace couchbase
+kubectl label nodes k8s-couchbase databases=couchbase --overwrite
+kubectl label nodes k8s-couchbase-node2 databases=couchbase --overwrite
+kubectl label nodes stack-k8s-couchbase failure-domain.beta.kubernetes.io/zone=us-east-1a
+kubectl label nodes k8s-couchbase-node2 failure-domain.beta.kubernetes.io/zone=us-east-1a
+helm install --values setvalue.yaml local-repo/couchbase-cluster --namespace couchbase --name cc
+helm install --values setvalue.yaml couchbase/couchbase-cluster --namespace couchbase --name cc
+helm upgrade cc --values setvalue.yaml local-repo/couchbase-cluster --namespace couchbase
+
+apiVersion: couchbase.com/v1
+kind: CouchbaseCluster
+metadata:
+  name: cb-example
+  namespace: default
+spec:
+  baseImage: couchbase/server
+  version: enterprise-5.5.2
+  paused: false
+  antiAffinity: true
+  tls:
+    static:
+      member:
+        serverSecret: couchbase-server-tls
+      operatorSecret: couchbase-operator-tls
+  authSecret: my-secret
+  exposeAdminConsole: true
+  adminConsoleServices:
+    - data
+  exposedFeatures:
+    - xdcr
+  softwareUpdateNotifications: true
+  serverGroups:
+    - us-east-1a
+    - us-east-1b
+    - us-east-1c
+  securityContext:
+    runAsUser: 1000
+    runAsNonRoot: true
+    fsGroup: 1000
+  disableBucketManagement: false
+  logRetentionTime: 604800s
+  logRetentionCount: 20
+  cluster:
+    dataServiceMemoryQuota: 256
+    indexServiceMemoryQuota: 256
+    searchServiceMemoryQuota: 256
+    eventingServiceMemoryQuota: 256
+    analyticsServiceMemoryQuota: 1024
+    indexStorageSetting: default
+    autoFailoverTimeout: 120
+    autoFailoverMaxCount: 3
+    autoFailoverOnDataDiskIssues: true
+    autoFailoverOnDataDiskIssuesTimePeriod: 120
+    autoFailoverServerGroup: false
+  buckets:
+    - name: default
+      type: couchbase
+      memoryQuota: 1024
+      replicas: 1
+      ioPriority: high
+      evictionPolicy: value-eviction
+      conflictResolution: seqno
+      enableFlush: true
+      enableIndexReplica: false
+  servers:
+    - size: 1
+      name: all_services
+      services:
+        - data
+        - index
+        - query
+        - search
+        - eventing
+        - analytics
+      serverGroups:
+        - us-east-1a
+      pod:
+        couchbaseEnv:
+          - name: ENV1
+            value: value
+        resources:
+          limits:
+            cpu: 4
+            memory: 8Gi
+            storage: 100Gi
+          requests:
+            cpu: 2
+            memory: 8Gi
+            storage: 50Gi
+        labels:
+          couchbase_services: all
+        nodeSelector:
+          instanceType: large
+        tolerations:
+          - key: app
+            operator: Equal
+            value: cbapp
+            effect: NoSchedule
+        automountServiceAccountToken: false
+        volumeMounts:
+          default: couchbase
+          data:  couchbase
+          index: couchbase
+          analytics:
+            - couchbase
+            - couchbase
+          logs: couchbase
+  volumeClaimTemplates:
+    - metadata:
+        name: couchbase
+      spec:
+        storageClassName: "standard"
+        resources:
+          requests:
+            storage: 1Gi

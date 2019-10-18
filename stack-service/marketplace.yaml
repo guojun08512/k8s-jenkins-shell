@@ -1,0 +1,66 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: stack-marketplace-deployment
+  labels:
+    app: stack-marketplace
+  namespace: stack-service
+  generation: 1
+spec:
+  selector:
+    matchLabels:
+      app: stack-marketplace
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: stack-marketplace
+    spec:
+      nodeName: k8s-stack-services
+      volumes:
+      - name: appdir
+        hostPath:
+          path: /home/curacloud/marketplace/appDir
+      initContainers:
+      - name: init-couchbase
+        image: harbor.bj.keyayun.com/seal/service
+        command:
+          - /usr/bin/cbmultideploy
+          - --config
+          - /usr/etc/seal/multi-db-config.yaml
+          - --skip-cluster
+          - --eventing-url
+          - http://admin:curacloud@seal-eventing.couchbase:8091
+          - --capi-url
+          - http://admin:curacloud@seal-capi.couchbase:8091
+          - --start
+      containers:
+      - name: stack
+        image: harbor.bj.keyayun.com/seal/service-marketplace
+        ports:
+        - name: admin
+          containerPort: 6060
+        - name: normal
+          containerPort: 8080
+        volumeMounts:
+        - name: appdir
+          mountPath: /root/apps
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: seal-marketplace-service
+  namespace: stack-service
+spec:
+  type: NodePort
+  ports:
+  - name: admin
+    port: 6060
+    targetPort: 6060
+  - name: normal
+    port: 8080
+    targetPort: 80
+    nodePort: 32081
+  type: NodePort
+  selector:
+    app: stack-marketplace

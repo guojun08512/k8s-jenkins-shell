@@ -1,0 +1,46 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    operator.couchbase.com/version: 1.2.0
+    service.alpha.kubernetes.io/tolerate-unready-endpoints: "true"
+  creationTimestamp: "2019-08-27T06:25:24Z"
+  labels:
+    app: couchbase
+    couchbase_cluster: seal
+  name: seal-ui
+  namespace: ich-couchbase
+  ownerReferences:
+  - apiVersion: couchbase.com/v1
+    controller: true
+    kind: CouchbaseCluster
+    name: seal
+    uid: 7091b9a1-543a-4c5e-8b0c-1b1d228b9f35
+  resourceVersion: "4787975"
+  selfLink: /api/v1/namespaces/ich-couchbase/services/seal-ui
+  uid: bb30766f-c80e-4e44-ac15-f8f6dff2ba1d
+spec:
+  clusterIP: 10.104.166.71
+  externalTrafficPolicy: Cluster
+  ports:
+  - name: couchbase-ui
+    nodePort: 32736
+    port: 8091
+    protocol: TCP
+    targetPort: 8091
+  - name: couchbase-ui-tls
+    nodePort: 31280
+    port: 18091
+    protocol: TCP
+    targetPort: 18091
+  selector:
+    app: couchbase
+    couchbase_cluster: seal
+    couchbase_service_data: enabled
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800
+  type: NodePort
+status:
+  loadBalancer: {}

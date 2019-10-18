@@ -1,0 +1,169 @@
+properties([
+    parameters([
+        gitParameter(branch: '',
+                     branchFilter: 'origin/(.*)',
+                     defaultValue: 'master',
+                     description: '',
+                     name: 'BRANCH',
+                     quickFilterEnabled: false,
+                     selectedValue: 'NONE',
+                     sortMode: 'NONE',
+                     tagFilter: '*',
+                     type: 'PT_BRANCH'),
+    ])
+])
+
+def pullCode(GitPath) {
+    git branch: "${params.BRANCH}", url: "${GitPath}"
+}
+
+def writeTestShell(APP_NAME, TargetDir, StackServer) {
+    withEnv(["APP_NAME=${APP_NAME}", "TargetDir=${TargetDir}"]) {
+    sh label: '', script: '''rm -rf targetapp.sh
+echo "#!/bin/bash" >> targetapp.sh
+echo "set -e" >> targetapp.sh
+echo tarName=${APP_NAME}_build_${BUILD_ID}.tar.gz >> targetapp.sh
+echo appName=${APP_NAME}_target_${BUILD_ID} >> targetapp.sh
+echo "tar -zxvf \\${tarName}" >> targetapp.sh
+echo "rm -rf \\${tarName}" >> targetapp.sh
+echo "if [ -d \\"${TargetDir}/\\${appName}\\" ];then rm -rf ${TargetDir}/\\${appName}; fi" >> targetapp.sh
+echo "mv build ${TargetDir}/\\${appName}" >> targetapp.sh
+echo "rm -rf ${TargetDir}/targetapp >> targetapp.sh"'''
+        def filelist = "${APP_NAME}_build_${BUILD_ID}.tar.gz, targetapp.sh"
+        sshPublisher(publishers: [sshPublisherDesc(configName: StackServer, transfers: [sshTransfer(cleanRemote: false, excludes: '', execCommand: "cd ${TargetDir} && chmod +x targetapp.sh && bash targetapp.sh", execTimeout: 120000, flatten: false, makeEmptyDirs: false, noDefaultExcludes: false, patternSeparator: '[, ]+', remoteDirectory: 'jenkins_workspace', remoteDirectorySDF: false, removePrefix: '', sourceFiles: filelist)], usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: false)])
+    }
+}
+
+def createTestLink(APP_NAME, DOMAIN, REDIRECAT, TargetDir, StackServer) {
+    def testSummary = createSummary(icon:"notepad.png", text:"${StackServer}测试:<br>");
+    def url="http://api.ip-10-3-7-254.bj.keyayun.com:7070/auth/login?redirect=${REDIRECAT}?appInfo=${APP_NAME},${TargetDir}/${APP_NAME}_target_${BUILD_NUMBER}#/";
+    def urlLink = "<a href='" + url +"'>测试链接</a>";
+    testSummary.appendText(urlLink, false, false, false, "red");
+}
+
+def createBjDeployLink(APP_NAME, Version){
+    def deploySummary = createSummary(icon:"notepad.png", text:"北京发布:<br>")
+    def url = "<form method=\"post\" autocomplete=\"off\" name=\"parameters\" action=\"/job/stack-apps/job/bj-deploy-app/build?delay=0sec\"><div class=\"parameters\"><input name=\"statusCode\" type=\"hidden\" value=\"303\"><input name=\"redirectTo\" type=\"hidden\" value=\"/job/stack-apps/job/bj-deploy-app/\"><div name=\"parameter\"><input name=\"name\" type=\"hidden\" value=\"appname\"><input name=\"value\" type=\"hidden\" value=${APP_NAME}></div><div name=\"parameter\"><input name=\"name\" type=\"hidden\" value=\"version\"><input name=\"value\" type=\"hidden\" value=${Version}></div><button type=\"submit\">北京发布</button></div></form>"
+    deploySummary.appendText(url, false, false, false, "red")
+}
+
+def createSzDeployLink(APP_NAME, Version){
+    def deploySummary = createSummary(icon:"notepad.png", text:"深圳发布:<br>")
+    def url = "<form method=\"post\" autocomplete=\"off\" name=\"parameters\" action=\"/job/stack-apps/job/sz-deploy-app/build?delay=0sec\"><div class=\"parameters\"><input name=\"statusCode\" type=\"hidden\" value=\"303\"><input name=\"redirectTo\" type=\"hidden\" value=\"/job/stack-apps/job/sz-deploy-app/\"><div name=\"parameter\"><input name=\"name\" type=\"hidden\" value=\"appname\"><input name=\"value\" type=\"hidden\" value=${APP_NAME}></div><div name=\"parameter\"><input name=\"name\" type=\"hidden\" value=\"version\"><input name=\"value\" type=\"hidden\" value=${Version}></div><button type=\"submit\">深圳发布</button></div></form>"
+    deploySummary.appendText(url, false, false, false, "red")
+}
+
+def dockerBuildApp(Name, Version) {
+    withDockerContainer(args: '-v /home/curacloud/replace_app_version:/replace_app_version', image: 'node:8.16.0-stretch') {
+        sh "cd ${WORKSPACE} && npm config set @cc:registry http://sinopia.curacloudplatform.com:4873/ && yarn install && yarn upgrade cozy-bar && yarn build && cd /replace_app_version && npm install -S commander &&  node /replace_app_version/replace.js  --editor seal --manifest ${WORKSPACE}/build/manifest.webapp --version ${Version}"
+    }
+}
+
+def createBranchName(Version) {
+    addShortText background: 'white', border: 1, color: 'green', text: "${params.BRANCH}"
+    addShortText background: 'white', border: 1, color: 'green', text: "v${Version}"
+}
+
+def bakAppZip(Name) {
+    sh "cd ${WORKSPACE} && tar -zcvf ${Name}_build_${BUILD_ID}.tar.gz build && cd build && tar -zcvf ${Name}.tar.gz * && mv ${Name}.tar.gz ../"
+    archiveArtifacts artifacts: "${Name}_build_${BUILD_ID}.tar.gz"
+    sh "if [ ! -d \"/tmp/apps\" ];then mkdir -p /tmp/apps; fi && cp -r ${Name}.tar.gz /tmp/apps"
+}
+
+def updateRegistryApp(APP_NAME, Version) {
+    withEnv(["APP_NAME=${APP_NAME}", "Version=${Version}"]) {
+        sh label: '', script: ''' cat > updateRegistryApp.sh << EOF
+#!/bin/bash
+app_register_service=http://192.168.201.12:32181/registry
+BIN_FILE=/usr/bin/app-register-service
+conf=/usr/etc/seal/app-conf.yml
+filepath=/home
+version=${Version}
+token=\\$(\\${BIN_FILE} -c \\${conf} gen-token --master Seal)
+curl -X "POST" "\\${app_register_service}/${APP_NAME}" \\
+ -H "Authorization: Token \\$token" \\
+ -H "Content-Type: application/json" \\
+ -d $"{ \\"url\\": \\"file://\\${filepath}/${APP_NAME}.tar.gz\\", \\"sha256\\": \\"\\$(openssl dgst -sha256 \\${filepath}/${APP_NAME}.tar.gz | awk \'{print \\$2}\')\\", \\"version\\": \\"\\${version}\\",  \\"type\\": \\"webapp\\",\\"editor\\": \\"seal\\"}"
+EOF
+    '''
+        sh label: '', script: ''' cat > doUpdate.sh << EOF
+#!/bin/bash
+dockerID=\\$(docker ps | grep harbor.bj.keyayun.com/seal/app-register-service | awk '{print \\$1}' | head -n 1)
+docker exec -t \\$dockerID bash -c "chmod +x /home/updateRegistryApp.sh && bash /home/updateRegistryApp.sh && rm -rf /home/updateRegistryApp.sh && rm -rf /home/${APP_NAME}.tar.gz"
+#docker exec -t \\$dockerID bash -c "chmod +x /home/updateRegistryApp.sh && bash /home/updateRegistryApp.sh"
+EOF
+    '''
+    sshPublisher(publishers: [sshPublisherDesc(configName: '192.168.201.19', transfers: [sshTransfer(cleanRemote: false, excludes: '', execCommand: 'chmod +x stack/appRegistry/doUpdate.sh && bash stack/appRegistry/doUpdate.sh && rm -rf stack/appRegistry/doUpdate.sh', execTimeout: 120000, flatten: false, makeEmptyDirs: false, noDefaultExcludes: false, patternSeparator: '[, ]+', remoteDirectory: 'stack/appRegistry', remoteDirectorySDF: false, removePrefix: '', sourceFiles: "updateRegistryApp.sh,doUpdate.sh,${APP_NAME}.tar.gz")], usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: false)])
+    }
+}
+
+def createVersion(VersionPath) {
+    getVersion="cd ${VersionPath} && git describe --dirty --abbrev=8 --tags --always | sed s/^[v]//g"
+    Version=sh returnStdout: true, script: getVersion
+    getTag="cd ${VersionPath} && git tag"
+    tag=sh returnStdout: true, script: getTag
+    if (tag=="") {
+        getCommitCount="cd ${VersionPath} && git log | grep -e 'commit [a-zA-Z0-9]*' | wc -l | tr -s '\n' ' ' | sed s/[[:space:]]//g"
+        commitCount=sh returnStdout: true, script: getCommitCount
+        tag="0.0.0"
+        Version="${tag}-${commitCount}-${Version}"
+    }
+    return Version
+}
+
+
+def build(Name, Domain, StackServer, isNeedBuild) {
+    try{
+        stage("${Name}") {
+            GitPath="git@git.keyayun.com:keyayun/${Name}.git"
+            if (Name == "activities") {
+                GitPath="git@git.keyayun.com:keyayun/activity.git"
+            } else if (Name == "contacts") {
+                GitPath="git@git.keyayun.com:keyayun/contact.git"
+            } else if (Name == "settings") {
+                GitPath="git@git.keyayun.com:keyayun/setting.git"
+            } else if (Name == "comments") {
+                GitPath="git@git.keyayun.com:keyayun/comment.git"
+            } else if (Name == "tags") {
+                GitPath="git@git.keyayun.com:keyayun/tag.git"
+            }
+            echo GitPath
+            pullCode(GitPath)
+            VersionPath="${WORKSPACE}"
+            Version=createVersion(VersionPath)
+            echo Version
+            // splitDomainCmd="echo ${Domain} | awk \'{split(\"${Domain}\", res, \".\");print res[1]}\'| tr -s '\n' ' ' | sed s/[[:space:]]//g"
+            // preSuffix=sh returnStdout: true, script: splitDomainCmd
+            // lenPreSuffix=sh returnStdout: true, script: "echo \"${preSuffix}\" | awk 'NR==1{print length}' | tr -s '\n' ' '"
+            // substrDomainCmd="echo \"${Domain}\" | awk \'{print substr(\"${Domain}\", ${lenPreSuffix} + 1)}\'"
+            // lastedDomain=sh returnStdout: true, script: substrDomainCmd
+            // REDIRECAT="http://${preSuffix}-${Name}${lastedDomain}"
+            REDIRECAT="http://${Name}.${Domain}"
+            if (isNeedBuild) {
+                createBranchName(Version)
+                dockerBuildApp(Name, Version)
+                bakAppZip(Name)
+            }
+            targetPath="/home/curacloud/jenkins_workspace"
+            writeTestShell(Name, targetPath, StackServer)
+            createTestLink(Name, Domain, REDIRECAT, targetPath, StackServer)
+            createBjDeployLink(Name, Version)
+            createSzDeployLink(Name, Version)
+            updateRegistryApp(Name, Version)
+        }
+    } catch (e) {
+        currentBuild.result = 'FAIL'
+        result = "FAIL"
+    }
+}
+
+node {
+    def serverInfos=[
+        [ 'Domain': 'api.ip-10-3-7-254.bj.keyayun.com:8080', 'StackServer': '10.3.7.254'],
+    ]
+    isNeedBuild=true
+    for (serverInfo in serverInfos) {
+        build("dvfoms", serverInfo.Domain, serverInfo.StackServer, isNeedBuild)
+        isNeedBuild=false
+    }
+}

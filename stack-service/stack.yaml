@@ -1,0 +1,105 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ich-stack-service
+
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: stack-deployment
+  labels:
+    app: stack
+  namespace: stack-service
+  generation: 1
+spec:
+  selector:
+    matchLabels:
+      app: stack
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: stack
+    spec:
+      nodeName: k8s-node
+      volumes:
+      - name: appdir
+        hostPath:
+          path: /home/curacloud/stack/appDir
+      initContainers:
+      - name: init-couchbase
+        image: harbor.bj.keyayun.com/seal/service
+        command:
+          - /usr/bin/cbmultideploy
+          - --config
+          - /usr/etc/seal/multi-db-config.yaml
+          - --skip-cluster
+          - --eventing-url
+          - http://admin:curacloud@seal-eventing.couchbase:8091
+          - --capi-url
+          - http://admin:curacloud@seal-capi.couchbase:8091
+          - --start
+      containers:
+      - name: stack
+        image: harbor.bj.keyayun.com/seal/service
+        ports:
+        - name: admin
+          containerPort: 6060
+        - name: normal
+          containerPort: 80
+        - name: login
+          containerPort: 7070
+        env:
+          - name: KEYAYUN_MAIL_NOREPLY_ADDRESS
+            value: svc-dev@keyayun.com
+          - name: KEYAYUN_MAIL_NOREPLY_NAME
+            value: "svc dev"
+          - name: KEYAYUN_MAIL_HOST
+            value: smtp.exmail.qq.com
+          - name: KEYAYUN_MAIL_PORT
+            value: 465
+          - name: KEYAYUN_MAIL_USERNAME
+            value: svc-dev@keyayun.com
+          - name: KEYAYUN_MAIL_PASSWORD
+            value: Cozy123!
+          - name: KEYAYUN_MAIL_NATIVE_TLS
+            value: true
+          - name: KEYAYUN_MAIL_DISABLE_TLS
+            value: false
+          - name: KEYAYUN_MAIL_SKIP_CERTIFICATE_VALIDATION
+            value: false
+        # - name: KEYAYUN_IAM_REMOTE_URL
+        #   value: http://192.168.201.12:32071
+        # - name: KEYAYUN_COUCHBASE_URL
+        #   value: http://admin:curacloud@seal-capi.ich-couchbase:8091?cccp_max_wait=3600000
+        # - name: KEYAYUN_COUCHBASE_EVENTING_URL
+        #   value: http://admin:curacloud@seal-eventing.ich-couchbase:8091?cccp_max_wait=3600000
+        # - name: KEYAYUN_FS_URL
+        #   value: s3://minio.ich-minio:9000/?accessKeyID=admin&secretAccessKey=curacloud
+        volumeMounts:
+        - name: appdir
+          mountPath: /root/apps
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: seal-service
+  namespace: stack-service
+spec:
+  type: NodePort
+  ports:
+  - name: admin
+    port: 6060
+    targetPort: 6060
+  - name: normal
+    port: 8080
+    targetPort: 80
+    nodePort: 32080
+  - name: login
+    port: 7070
+    targetPort: 7070
+    nodePort: 32070
+  type: NodePort
+  selector:
+    app: stack

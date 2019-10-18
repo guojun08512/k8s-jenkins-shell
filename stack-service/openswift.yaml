@@ -1,0 +1,75 @@
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  # 此名称唯一标识PVC。 将在以下部署中使用。
+  name: openswift-pv
+  namespace: ich-test
+spec:
+  # 关于 access modes的更多细节，访问这里: http://kubernetes.io/docs/user-guide/persistent-volumes/#access-modes
+  accessModes:
+    - ReadWriteMany
+  capacity:
+    storage: 2048Gi
+  nfs:
+    server: 192.168.8.71
+    path: "/k8s-test-env/openswift"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: openswift-pvc
+  namespace: ich-test
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: ""
+  resources:
+    requests:
+      storage: 2048Gi
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: app-registry-openswift-deployment
+  labels:
+    app: app-registry-openswift
+  namespace: ich-test
+  generation: 1
+spec:
+  selector:
+    matchLabels:
+      app: app-registry-openswift
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: app-registry-openswift
+    spec:
+      nodeName: k8s-ich-test
+      containers:
+      - name: app-registry-openswift
+        image: morrisjobke/docker-swift-onlyone
+        ports:
+        - name: admin
+          containerPort: 8080
+        volumeMounts:
+        - name: openswift
+          mountPath: /srv
+      volumes:
+        - name: openswift
+          persistentVolumeClaim:
+            claimName: openswift-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-registry-openswift-service
+  namespace: ich-test
+spec:
+  ports:
+  - name: admin
+    port: 12345
+    targetPort: 8080
+  selector:
+    app: app-registry-openswift

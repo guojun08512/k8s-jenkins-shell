@@ -1,0 +1,65 @@
+properties([
+    parameters([
+        gitParameter(branch: '',
+                     branchFilter: 'origin/(.*)',
+                     defaultValue: 'master',
+                     description: '',
+                     name: 'BRANCH',
+                     quickFilterEnabled: false,
+                     selectedValue: 'NONE',
+                     sortMode: 'NONE',
+                     tagFilter: '*',
+                     type: 'PT_BRANCH'),
+    ])
+])
+
+def pullCode(Path, Proj,GitRemote) {
+    stage('Code pull') {
+        ws("${Path}/${Proj}") {
+            git branch: "${params.BRANCH}", url: "${GitRemote}"
+        }
+    }
+}
+
+def createBranchName() {
+    addShortText(params.BRANCH)
+}
+
+def prepareDockerSources(Path, Project) {
+    stage('Yarn Install') {
+        withDockerContainer('node:8.16.0-stretch') {
+            sh "cd ${Path}/${Project} &&  yarn install"
+        }
+    }
+}
+
+def buildDocker(Path) {
+    ws("${Path}") {
+        sh label: '', script: '''cat > build.sh << EOF
+#!/bin/bash
+set -e
+date=`TZ=UTC-8 date +%Y%m%d%H%M`
+docker login https://harbor.bj.keyayun.com -u jks_registry -p CuraCloud30503
+docker build -t harbor.bj.keyayun.com/library/datacenter:\\${date} .
+docker tag harbor.bj.keyayun.com/library/datacenter:\\${date} harbor.bj.keyayun.com/library/datacenter:latest
+docker push harbor.bj.keyayun.com/library/datacenter:\\${date}
+docker push harbor.bj.keyayun.com/library/datacenter:latest
+docker image rm harbor.bj.keyayun.com/library/datacenter:\\${date}
+docker image rm harbor.bj.keyayun.com/library/datacenter:latest 
+docker logout
+EOF
+    '''
+    sh 'chmod +x build.sh'
+    sh 'bash build.sh'
+    }
+}
+
+node {
+    Path='/home/uploader/DataCenterServer'
+    Proj='DataCenterServer'
+    GitRemote='git@git.keyayun.com:cc/DataCenterServer.git'
+    pullCode(Path, Proj, GitRemote)
+    createBranchName()
+    prepareDockerSources(Path, Proj)
+    buildDocker(Path)
+}

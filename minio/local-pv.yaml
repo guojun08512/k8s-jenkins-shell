@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  # 此名称唯一标识PVC。 将在以下部署中使用。
+  name: minio-pv
+  namespace: minio
+  labels:
+    type: local  
+spec:
+  # 关于 access modes的更多细节，访问这里: http://kubernetes.io/docs/user-guide/persistent-volumes/#access-modes
+  accessModes:
+    - ReadWriteOnce
+  capacity:
+    storage: 1024Gi
+  hostPath:
+    path: /home/curacloud/minio
+
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  # 此名称唯一标识PVC。 将在以下部署中使用。
+  name: minio-pv
+  namespace: minio
+spec:
+  # 关于 access modes的更多细节，访问这里: http://kubernetes.io/docs/user-guide/persistent-volumes/#access-modes
+  accessModes:
+    - ReadWriteOnce
+  capacity:
+    storage: 1024Gi
+  nfs:
+    server: 192.168.8.71
+    path: "/k8s-test-env/data1"

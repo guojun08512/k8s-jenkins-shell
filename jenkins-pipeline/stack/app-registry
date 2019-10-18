@@ -1,0 +1,66 @@
+// stack docker build and set up
+properties([
+    parameters([
+        gitParameter(branch: '',
+                     branchFilter: 'origin/(.*)',
+                     defaultValue: 'master',
+                     description: '',
+                     name: 'BRANCH',
+                     quickFilterEnabled: false,
+                     selectedValue: 'NONE',
+                     sortMode: 'NONE',
+                     tagFilter: '*',
+                     type: 'PT_BRANCH')
+    ])
+])
+
+GIT_REMOTE="git@git.keyayun.com:jung/cozy-apps-registry.git"
+SERVICE_NAME="app-register-service"
+HOME_PATH="/home/couchbase"
+PROJECT_PATH="keyayun.com"
+
+def pullCode() {
+    ws("${HOME_PATH}/${PROJECT_PATH}/${SERVICE_NAME}"){
+        git branch: "${params.BRANCH}", url: "${GIT_REMOTE}"
+    }
+    addShortText background: 'white', border: 1, color: 'green', text: "${params.BRANCH}"
+}
+
+def buildService() {
+    withDockerContainer(args: '-v /home/pkg:/go/pkg', image: 'golang') {
+        sh "cd ${HOME_PATH}/${PROJECT_PATH}/${SERVICE_NAME} && go mod tidy && make linux && cp -r  bin ${HOME_PATH}/app-register-service/ && cp -r scripts ${HOME_PATH}/app-register-service && cd ${HOME_PATH}/app-register-service && rm -rf sessionsecret.key && ./bin/app-register-service-linux-amd64 -c app-conf.yaml gen-session-secret"
+    }
+}
+
+// def tar() {
+//     sh "cd ${HOME_PATH}/${PROJECT_PATH}/${SERVICE_NAME} && cp -r cozy-registry.example.yml app-conf.yml && tar -zcvf register-service.tar.gz bin scripts app-conf.yml && cp -r register-service.tar.gz ${WORKSPACE}"
+//     archiveArtifacts artifacts: "register-service.tar.gz"
+// }
+
+def buildStackDocker() {
+    echo 'build docker and push docker'
+    sh label: '', script: '''cat > build.sh << EOF
+#!/bin/bash
+set -e
+date=`TZ=UTC-8 date +%Y%m%d%H%M`
+dir="seal"
+name="app-register-service"
+docker login https://harbor.bj.keyayun.com -u jks_registry -p CuraCloud30503
+docker build -t harbor.bj.keyayun.com/\\${dir}/\\${name}:\\${date} /home/couchbase/app-register-service/
+docker tag harbor.bj.keyayun.com/\\${dir}/\\${name}:\\${date} harbor.bj.keyayun.com/\\${dir}/\\${name}:latest
+docker push harbor.bj.keyayun.com/\\${dir}/\\${name}:\\${date}
+docker push harbor.bj.keyayun.com/\\${dir}/\\${name}:latest
+docker image rm harbor.bj.keyayun.com/\\${dir}/\\${name}:\\${date}
+docker logout
+EOF
+    '''
+    sh 'chmod +x build.sh'
+    sh 'bash build.sh'    
+}
+
+node {
+    pullCode()
+    buildService()
+    buildStackDocker()
+    // tar()
+}

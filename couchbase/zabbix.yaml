@@ -1,0 +1,11 @@
+version: '3.5'
+services:
+ zabbix-agent:
+  image: zabbix/zabbix-agent
+  restart: always
+  ports:
+   - "10050:10050"
+  environment:
+   - ZBX_HOSTNAME=opsserver
+   - ZBX_SERVER_HOST=172.10.10.252
+   - ZBX_SERVER_PORT=10051

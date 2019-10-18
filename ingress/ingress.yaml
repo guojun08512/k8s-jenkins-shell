@@ -1,0 +1,37 @@
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: ing-runner-service
+  namespace: stack-couchbase
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    # nginx.ingress.kubernetes.io/rewrite-target: "/"
+    # kubernetes.io/ingress.class: "ingress-nginx" 
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /
+        backend:
+          serviceName: runner-service
+          servicePort: 8666
+
+
+
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: ing-image-service
+  namespace: uploader
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    # nginx.ingress.kubernetes.io/rewrite-target: "/"
+    # kubernetes.io/ingress.class: "ingress-nginx" 
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /
+        backend:
+          serviceName: image-service
+          servicePort: 7001

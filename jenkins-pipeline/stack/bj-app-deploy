@@ -1,0 +1,70 @@
+pipeline{
+    agent any
+    stages{
+        stage("Send Files") {
+            steps {
+                script{
+                    addShortText background: 'white', border: 1, color: 'green', text: "${appname}"
+                    addShortText background: 'white', border: 1, color: 'green', text: "v${version}"                    
+                    sh 'cp /tmp/apps/${appname}.tar.gz $WORKSPACE/'
+                    withEnv(["APP_NAME=${appname}", "APP_VERSION=${version}"]) {
+        sh label: '', script: ''' cat > updateRegistryApp.sh << EOF
+#!/bin/bash
+app_register_service=http://192.168.200.160:32181/registry
+BIN_FILE=/usr/bin/app-register-service
+conf=/usr/etc/seal/app-conf.yml
+filepath=/home
+version=${APP_VERSION}
+token=\\$(\\${BIN_FILE} -c \\${conf} gen-token --master Seal)
+name=${APP_NAME}
+if [ "\\${name}" == "deepvesselapp" ];then
+    name="deepvessel"
+fi
+echo \\${name}
+curl -X "POST" "\\${app_register_service}/\\${name}" \\
+-H "Authorization: Token \\$token" \\
+-H "Content-Type: application/json" \\
+-d $"{ \\"url\\": \\"file://\\${filepath}/${APP_NAME}.tar.gz\\", \\"sha256\\": \\"\\$(openssl dgst -sha256 \\${filepath}/${APP_NAME}.tar.gz | awk \'{print \\$2}\')\\", \\"version\\": \\"\\${version}\\",  \\"type\\": \\"webapp\\",\\"editor\\": \\"seal\\"}"
+EOF
+    '''
+        sh label: '', script: ''' cat > doUpdate.sh << EOF
+#!/bin/bash
+dockerID=\\$(docker ps | grep harbor.bj.keyayun.com/seal/app-register-service | awk '{print \\$1}' | head -n 1)
+#docker exec -t \\$dockerID bash -c "chmod +x /home/updateRegistryApp.sh && bash /home/updateRegistryApp.sh && rm -rf /home/updateRegistryApp.sh && rm -rf /home/${APP_NAME}.tar.gz"
+docker exec -t \\$dockerID bash -c "chmod +x /home/updateRegistryApp.sh && bash /home/updateRegistryApp.sh"
+EOF
+    '''
+                        sshPublisher(publishers: [sshPublisherDesc(configName: '192.168.200.187', transfers: [sshTransfer(cleanRemote: false, excludes: '', execCommand: 'chmod +x stack/appRegistry/doUpdate.sh && bash stack/appRegistry/doUpdate.sh && rm -rf stack/appRegistry/doUpdate.sh', execTimeout: 120000, flatten: false, makeEmptyDirs: false, noDefaultExcludes: false, patternSeparator: '[, ]+', remoteDirectory: 'stack/appRegistry', remoteDirectorySDF: false, removePrefix: '', sourceFiles: "updateRegistryApp.sh,doUpdate.sh,${APP_NAME}.tar.gz")], usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: false)])
+                    }
+                }                        
+            }
+        }
+        stage("force update app"){
+            steps{
+                script{
+                    withEnv(["APP_NAME=${appname}", "APP_VERSION=${version}"]) {
+        sh label: '', script: ''' cat > doUpdate.sh << EOF
+#!/bin/bash
+sleep 30
+dockerID=\\$(docker ps | grep harbor.bj.keyayun.com/seal/service | awk '{print \\$1}' | head -n 1)
+control=update
+app=${APP_NAME}
+appname=${APP_NAME}
+if [ "\\${app}" == "deepvesselapp" ];then
+    app="deepvessel"
+fi
+echo \\${app}
+#### apps
+for instance in haoc.csbj2.keyayun.com yet.csbj2.keyayun.com jianxiaz.csbj2.keyayun.com yud.csbj2.keyayun.com doctor1.csbj2.keyayun.com doctor2.csbj2.keyayun.com zhengt.csbj2.keyayun.com ningl.csbj2.keyayun.com zhanghc.csbj2.keyayun.com huiyangz.csbj2.keyayun.com jung.csbj2.keyayun.com bochaoc.csbj2.keyayun.com ningliu.csbj2.keyayun.com zheny.csbj2.keyayun.com anzhuc.csbj2.keyayun.com feil.csbj2.keyayun.com xinghunm.csbj2.keyayun.com
+do
+    docker exec -t \\$dockerID bash -c "/usr/bin/service-stack-linux-amd64 -c /usr/etc/seal/conf.yml apps --domain \\${instance} \\$control \\$appname registry://\\$app"
+done
+EOF
+    '''
+                sshPublisher(publishers: [sshPublisherDesc(configName: '192.168.200.186', transfers: [sshTransfer(cleanRemote: false, excludes: '', execCommand: 'chmod +x stack/doUpdate.sh && bash stack/doUpdate.sh && rm -rf stack/doUpdate.sh', execTimeout: 1200000, flatten: false, makeEmptyDirs: false, noDefaultExcludes: false, patternSeparator: '[, ]+', remoteDirectory: 'stack', remoteDirectorySDF: false, removePrefix: '', sourceFiles: "doUpdate.sh")], usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: false)])
+                    }
+                }
+            }
+        }
+    }
+}

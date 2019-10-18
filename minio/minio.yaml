@@ -1,0 +1,63 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  # 此名称唯一标识PVC。 将在以下部署中使用。
+  name: export-mini
+  namespace: minio
+spec:
+  # 关于 access modes的更多细节，访问这里: http://kubernetes.io/docs/user-guide/persistent-volumes/#access-modes
+  accessModes:
+    - ReadWriteOnce
+  capacity:
+    storage: 5120Gi
+  nfs:
+    server: 192.168.8.71
+    path: "/k8s-minio/data1"
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  # 此名称唯一标识PVC。 将在以下部署中使用。
+  name: export-mini-2
+  namespace: minio
+spec:
+  # 关于 access modes的更多细节，访问这里: http://kubernetes.io/docs/user-guide/persistent-volumes/#access-modes
+  accessModes:
+    - ReadWriteOnce
+  capacity:
+    storage: 5120Gi
+  nfs:
+    server: 192.168.8.71
+    path: "/k8s-minio/data2"
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  # 此名称唯一标识PVC。 将在以下部署中使用。
+  name: export-mini-3
+  namespace: minio
+spec:
+  # 关于 access modes的更多细节，访问这里: http://kubernetes.io/docs/user-guide/persistent-volumes/#access-modes
+  accessModes:
+    - ReadWriteOnce
+  capacity:
+    storage: 5120Gi
+  nfs:
+    server: 192.168.8.71
+    path: "/k8s-minio/data3"
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  # 此名称唯一标识PVC。 将在以下部署中使用。
+  name: export-mini-4
+  namespace: minio
+spec:
+  # 关于 access modes的更多细节，访问这里: http://kubernetes.io/docs/user-guide/persistent-volumes/#access-modes
+  accessModes:
+    - ReadWriteOnce
+  capacity:
+    storage: 5120Gi
+  nfs:
+    server: 192.168.8.71
+    path: "/k8s-minio/data1"

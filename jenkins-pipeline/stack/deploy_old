@@ -1,0 +1,31 @@
+pipeline{
+    agent any
+    stages{
+        stage("Send Files") {
+            steps {
+                script{
+                    sh 'cp /tmp/apps/${appname}_build_${version}.tar.gz $WORKSPACE/'
+                    sh label: '', script: '''#### deployapp
+rm -rf deployapp.sh
+echo "#!/bin/bash" >> deployapp.sh
+echo "set -e" >> deployapp.sh
+echo appname=${appname} >> deployapp.sh
+echo tarName=${appname}_build_${version}.tar.gz >> deployapp.sh
+echo "tar -zxvf \\${tarName}" >> deployapp.sh
+echo  rm -rf /home/curacloud/stack/apps/* >> deployapp.sh
+echo "rm -rf \\${tarName}" >> deployapp.sh
+echo "if [ \\${appname} == \\"setting\\" ] || [ \\${appname} == \\"contact\\" ] || [ \\${appname} == \\"tag\\" ] || [ \\${appname} == \\"comment\\" ];then appname=\\${appname}s;elif [ \\${appname} == \\"activity\\" ];then appname=activities; fi" >> deployapp.sh
+echo "echo \\${appname}" >> deployapp.sh
+echo "mv build /home/curacloud/stack/apps/\\${appname}" >> deployapp.sh
+echo "count=\\$(/home/curacloud/stack/bin/service-stack-linux-amd64 -c /home/curacloud/stack/bin/service-config.yaml apps ls --domain ${domain} | grep \\${appname} | wc -l)" >> deployapp.sh
+echo "if [ \\`echo \\$count | awk -v tem=0 \'{print(\\$1>tem)? \\"1\\":\\"0\\"}\'\\` -eq \\"1\\" ];then" >> deployapp.sh
+echo "bash /home/curacloud/stack/update_app.sh" >> deployapp.sh
+echo "else" >> deployapp.sh
+echo "bash /home/curacloud/stack/install_app.sh" >> deployapp.sh
+echo "fi" >> deployapp.sh'''
+                    sshPublisher(publishers: [sshPublisherDesc(configName: "192.168.201.19", transfers: [sshTransfer(cleanRemote: false, excludes: '', execCommand: 'cd jenkins_workspace && chmod +x deployapp.sh && bash deployapp.sh', execTimeout: 120000, flatten: false, makeEmptyDirs: false, noDefaultExcludes: false, patternSeparator: '[, ]+', remoteDirectory: 'jenkins_workspace', remoteDirectorySDF: false, removePrefix: '', sourceFiles: '${appname}_build_${version}.tar.gz, deployapp.sh')], usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: false)])
+                }                        
+            }
+        }        
+    }
+}

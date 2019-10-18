@@ -1,0 +1,226 @@
+# This file contain an example of cozy-stack configuration file.
+# It provides a description for all available fields to configure the stack.
+#
+# It is possible to pass environnment variable to this configuration using the
+# template language of golang, delimited by "{{" and "}}". See:
+#
+#     https://golang.org/pkg/text/template/.
+#
+# The env map is available in the ".Env" variable. For instance
+# ".Env.COUCHDB_PASSPHRASE" will access to "COUCHDB_PASSPHRASE" environment
+# variable. The template is evaluated at startup of the stack.
+
+# server host - flags: --host
+host: 0.0.0.0
+# server port - flags: --port -p
+port: 8080 
+
+seal_assets: /go/assets
+
+# how to structure the subdomains for apps - flags: --subdomains
+# values:
+#  - nested, like https://<app>.<user>.<domain>/ (well suited for self-hosted with Let's Encrypt)
+#  - flat, like https://<user>-<app>.<domain>/ (easier when using wildcard TLS certificate)
+subdomains: flat
+
+# path to the directory with the assets - flags: --assets
+# default is to use the assets packed in the binary
+# assets: ""
+
+# administration endpoint parameters. this endpoint should be protected
+admin:
+  # server host - flags: --admin-host
+  host: 0.0.0.0
+  # server port - flags: --admin-port
+  port: 9060
+  # secret file name containing the derived passphrase to access to the
+  # administration endpoint. this secret file can be generated using the `cozy-
+  # stack config passwd` command. this file should be located in the same path
+  # as the configuration file.
+  secret_filename: seal-admin-passphrase
+
+# vault contains keyfiles informations
+# See https://docs.cozy.io/en/cozy-stack/cli/cozy-stack_config_gen-keys/
+# to generate the keys
+vault:
+  # the path to the key used to encrypt credentials
+  #credentials_encryptor_key: /path/to/key.enc
+  # the path to the key used to decrypt credentials
+  #credentials_decryptor_key: /path/to/key.dec
+
+# file system parameters
+fs:
+  # file system url - flags: --fs-url
+  # default url is the directory relative to the binary: ./storage
+  # url: s3://minio:9000/?accessKeyID=admin&secretAccessKey=adminadmin
+  url: s3://192.168.200.156:9001/?accessKeyID=admin&secretAccessKey=curacloud
+  # url: file://localhost/var/lib/cozy
+  # url: swift://openstack/?UserName={{ .Env.OS_USERNAME }}&Password={{ .Env.OS_PASSWORD }}&ProjectName={{ .Env.OS_PROJECT_NAME }}&UserDomainName={{ .Env.OS_USER_DOMAIN_NAME }}
+
+# couchdb parameters
+#couchdb:
+  # CouchDB URL - flags: --couchdb-url
+#  url: http://couchdb:5984/
+
+  # CouchDB advanced parameters to activate TLS properties:
+  #
+  # root_ca: /ca-certificates.pem
+  # client_cert: /client_cert.pem
+  # client_key: /client_key
+  # pinned_key: 57c8ff33c9c0cfc3ef00e650a1cc910d7ee479a8bc509f6c9209a7c2a11399d6
+  # insecure_skip_validation: true
+couchbase:
+  default: main
+  healthport: 8092
+  url: http://admin:curacloud@192.168.200.144:8091?cccp_max_wait=3600000
+# jobs parameters to configure the job system
+jobs:
+  # path to the imagemagick convert binary
+  # imagemagick_convert_cmd: convert
+
+  # Specify whether the given list of jobs is a whitelist or blacklist. In case
+  # of a whitelist, all jobs are deactivated by default and only the listed one
+  # are activated.
+  #
+  # whitelist: false
+
+  # workers individual configrations.
+  #
+  # For each worker type it is possible to configure the following fields:
+  #   - concurrency: the maximum number of jobs executed in parallel. when set
+  #     to zero, the worker is deactivated
+  #   - max_exec_count: the maximum number of retries for one job in case of an
+  #     error
+  #   - timeout: the maximum amount of time allowed for one execution of a job
+  #
+  # List of available workers:
+  #
+  #   - "export":          exporting data from a cozy instance
+  #   - "konnector":       launching konnectors
+  #   - "push":            sending push notifications
+  #   - "sendmail":        sending mails
+  #   - "service":         launching services
+  #   - "thumbnail":       creatings and deleting thumbnails for images
+  #   - "share-replicate": for cozy to cozy sharing
+  #   - "share-track":     idem
+  #   - "share-upload":    idem
+  #   - "unzip":           unzipping tarball
+  #   - "updates":         run updates for installed applications
+  #
+  # When no configuration is given for a worker, a default configuration is
+  # used. When a false boolean value is given, the worker is deactivated.
+  #
+  # To deactivate all workers, the workers field can be set to "false" or
+  # "none".
+  workers:
+    # thumbnail:
+    #   concurrency: {{mul .NumCPU 4}}
+    #   max_exec_count: 2
+    #   timeout: 15s
+
+    # konnector:
+    #   concurrency: {{.NumCPU}}
+    #   max_exec_count: 2
+    #   timeout: 200s
+
+    service:
+      concurrency: {{.NumCPU}}
+      max_exec_count: 2
+      timeout: 200s
+
+    # export:
+    #   concurrency: 4
+    #   max_exec_count: 1
+    #   timeout: 200s
+
+    # push:     false
+    # sendmail: false
+
+# konnectors execution parameters for executing external processes.
+konnectors:
+  cmd: /go/scripts/konnector-node-run.sh # run connectors with node
+  # cmd: ./scripts/konnector-rkt-run.sh # run connectors with rkt
+  # cmd: ./scripts/konnector-nsjail-run.sh # run connectors with nsjail
+
+# directory with the hooks scripts - flags: --hooks
+#hooks: ./scripts/hooks
+
+# location of the database for IP -> City lookups - flags: --geodb
+# See https://dev.maxmind.com/geoip/geoip2/geolite2/
+geodb: ""
+
+# minimal duration between two password reset
+password_reset_interval: 15m
+
+# redis namespace to configure its usage for different part of the stack. redis
+# is not mandatory and is specifically useful to run the stack in an
+# environment where multiple stacks run simultaneously.
+redis:
+  # the redis clients created can be configured to be used with a cluster of
+  # redis. if addrs field is left empty, redis is not used.
+
+  # either a single address or a seed list of host:port addresses
+  # of cluster/sentinel nodes separated by whitespaces.
+  addrs: # localhost:1234 localhost:4321
+
+  # the sentinel master name - only failover clients.
+  master:
+
+  # redis password
+  password:
+
+  # databases number for each part of the stack using a specific database.
+  databases:
+    jobs: 0
+    cache: 1
+    lock: 2
+    sessions: 3
+    downloads: 4
+    konnectors: 5
+    realtime: 6
+    log: 7
+
+  # advanced parameters for advanced users
+
+  # dial_timeout: 5s
+  # read_timeout: 3s
+  # write_timeout: 3s
+  # pool_size: 10 * runtime.NumCPU()
+  # pool_timeout: 3s
+  # idle_timeout: 5m
+  # idle_check_frequency: 1m
+
+  # enables read only queries on slave nodes.
+  # read_only_slave: false
+
+notifications:
+  # Activate development APIs (iOS only)
+  development: false
+
+  # Firebase Cloud Messaging API Key for Android notifications
+  # android_api_key: ""
+
+  # APNS/2 certificates for iOS notifications
+  # ios_certificate_key_path: path/to/certificate.p12
+  # ios_certificate_password: mycertificatepasswordifany
+  # ios_key_id: my_key_id_if_any
+  # ios_team_id: my_team_id_if_any
+
+# whitelisted domains for the CSP policy used in hosted web applications
+csp_whitelist:
+  # script: https://whitelisted1.domain.com/ https://whitelisted2.domain.com/
+  # img:    https://whitelisted.domain.com/
+  # style:  https://whitelisted.domain.com/
+  # font:   https://whitelisted.domain.com/
+
+# It can useful to disable the CSP policy to debug and test things in local
+disable_csp: true
+
+log:
+  # logger level (debug, info, warning, panic, fatal) - flags: --log-level
+  level: info
+  # send logs to the local syslog - flags: --log-syslog
+  syslog: false
+
+
+
