@@ -1,0 +1,243 @@
+version: "3.7"
+networks:
+  extnetwork:
+    ipam:
+      config:
+      - subnet: 172.19.0.0/16
+        # gateway: 172.19.0.1
+services:
+  service:
+    image: speedtest-oregon.keyayun.com:4443/seal/service:201911051657
+    restart: always
+    container_name: service
+    ports:
+      - 7070:7070
+      - 8080:8080
+      - 6060:6060
+    # links:
+    #   - couchbase
+    #   - minio
+    #   - seal-runner-gateway
+    networks:
+      extnetwork:
+        ipv4_address: 172.19.0.2
+    deploy:
+      resources:
+        limits:
+          memory: 6144M
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /usr/bin/docker:/usr/bin/docker
+      - ./tools/conf:/usr/etc/seal
+      - ./apps:/apps
+      - ./tools/hosts/seal-service:/etc/hosts
+    tty: true
+    command: bash -c "service-stack-linux-amd64 serve -c /usr/etc/seal/conf.yml --dev --allow-root"
+  minio:
+    image: minio/minio
+    restart: always
+    container_name: minio
+    networks:
+      extnetwork:
+        ipv4_address: 172.19.0.11
+    environment:
+      MINIO_ACCESS_KEY: admin
+      MINIO_SECRET_KEY: curacloud
+    volumes:
+      - ./db_data/minio_data:/data
+    command: server /data
+  couchbase:
+    image: couchbase
+    restart: always
+    container_name: db
+    deploy:
+      resources:
+        limits:
+          memory: 6144M
+    networks:
+      extnetwork:
+        ipv4_address: 172.19.0.12
+    ports:
+      - 8091-8096:8091-8096
+      - 11210-11211:11210-11211
+    volumes:
+      - ./db_data/couchbase_data:/opt/couchbase/var
+    tty: true
+
+  seal-pacs:
+    image: speedtest-oregon.keyayun.com:4443/seal/seal-pacs:201911011750
+    restart: always
+    depends_on:
+      - redis
+      - service
+    networks:
+      extnetwork:
+        ipv4_address: 172.19.0.23
+    # links:
+    #   - redis
+    container_name: seal-pacs
+    ports:
+      - 1040:1040
+    volumes:
+      - ./pacs/get:/get
+      - ./pacs/store:/store
+      - ./logs:/go/seal-pacs/logs
+      - ./tools/hosts/seal-pacs:/etc/hosts
+    environment:
+      - HTTPSERVER_PORT=8228
+      - REDIS_ADDR=172.19.0.13:6379
+      - SHARED_NAME=LD_LIBRARY_PATH
+      - SHARED_PATH=/go/seal-pacs/dcmtk-build-linux/lib:/go/seal-pacs/dcmtk-seal/third_party/grpc/libs/linux
+      - DCMPATH_NAME=DCMDICTPATH
+      - DCMPATH_PATH=/go/seal-pacs/dcmtk/dcmdata/data/dicom.dic
+      - PACS_STORESCU_CMDPARAMS=-v -xs -ts 240 -ta 240
+      - PACS_STORESCU_EXECPATH=./dcmtk-build-linux/bin/storescu
+      - PACS_STORESCU_PATH=/store
+      - PACS_STORESCU_AET_TITLE=ACME1
+      - PACS_STORESCU_AEC_TITLE=ACME_STORE
+      - PACS_STORESCU_IP=127.0.0.1
+      - PACS_STORESCU_PORT=1040
+      - PACS_STORESCU_COUNT=15
+      #- PACS_SEALSCP_CMDPARAMS=-v +xs -s
+      - PACS_SEALSCP_CMDPARAMS=-v +xs
+      - PACS_SEALSCP_EXECPATH=./dcmtk-build-linux/bin/sealscp
+      - PACS_SEALSCP_PATH=/get
+      - PACS_SEALSCP_NETWORK_TCPPORT=1040
+      - PACS_SEALSCP_MAXPDUSIZE=16384
+      - PACS_SEALSCP_MAXASSOCIATIONS=16
+      - PACS_SEALSCP_AEMANAGER_HOSTTABLE=acme1 acme2 acmectcompany
+      - PACS_SEALSCP_AEMANAGER_ACME1_APPLICATIONTITLE=ACME1
+      - PACS_SEALSCP_AEMANAGER_ACME1_HOSTNAME=localhost
+      - PACS_SEALSCP_AEMANAGER_ACME1_PORTNUMBER=5678
+      - PACS_SEALSCP_AEMANAGER_ACME2_APPLICATIONTITLE=ACME2
+      - PACS_SEALSCP_AEMANAGER_ACME2_HOSTNAME=0.0.0.0
+      - PACS_SEALSCP_AEMANAGER_ACME2_PORTNUMBER=5678
+      - PACS_SEALSCP_AEMANAGER_ACMECTCOMPANY=acme1 acme2
+      - PACS_SEALSCP_AEMANAGER_VENDORTABLE=acmectcompany
+      - PACS_SEALSCP_AEMANAGER_AETABLE=common acme_store
+      - PACS_SEALSCP_AEMANAGER_COMMON_ACCESS=R
+      - PACS_SEALSCP_AEMANAGER_COMMON_CONFIGQUOTA_MAXSTUDIES=200
+      - PACS_SEALSCP_AEMANAGER_COMMON_CONFIGQUOTA_MAXBYTESPERSTUDY=1073741824
+      - PACS_SEALSCP_AEMANAGER_COMMON_PEER=ANY
+      - PACS_SEALSCP_AEMANAGER_ACME_STORE_ACCESS=RW
+      - PACS_SEALSCP_AEMANAGER_ACME_STORE_CONFIGQUOTA_MAXSTUDIES=9
+      - PACS_SEALSCP_AEMANAGER_ACME_STORE_CONFIGQUOTA_MAXBYTESPERSTUDY=1073741824
+      - PACS_SEALSCP_AEMANAGER_ACME_STORE_PEER=acmeCTcompany
+      - MULTIPARTUPLOAD_MAXWAITTIMEBEFOREUPLOAD=15
+
+  seal-runner-gateway:
+    image: speedtest-oregon.keyayun.com:4443/seal/seal-runner-gateway:201911061621
+    restart: always
+    container_name: seal-runner-gateway
+    ports:
+      - 8666:8666
+    depends_on:
+      - service
+    networks:
+      extnetwork:
+        ipv4_address: 172.19.0.21
+    # links:
+    #   - redis
+    volumes:
+      - ./logs:/go/seal-runner/logs
+      - ./workspace:/mnt
+      - ./tools/hosts/seal-runner-gateway:/etc/hosts
+    environment:
+      - REDIS_ADDR=172.19.0.13:6379
+  seal-runner-service:
+    image: speedtest-oregon.keyayun.com:4443/seal/seal-runner-service:201911061621
+    restart: always
+    container_name: seal-runner-service
+    depends_on:
+      - service
+    networks:
+      extnetwork:
+        ipv4_address: 172.19.0.22
+    # links:
+    #   - redis
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /usr/bin/docker:/usr/bin/docker
+      - ./workspace:/mnt
+      - ./logs:/go/seal-runner/logs
+      - ./tools/hosts/seal-runner-service:/etc/hosts
+    environment:
+      - REDIS_ADDR=172.19.0.13:6379
+      - FILEDIR_PARSE=/mnt/parse
+      - FILEDIR_ICH=/mnt/ich
+      - QUEUE_INTERVAL=1
+      - QUEUE_RETRY=1
+      - SERVICES_DICOMPARSE=1
+      - SERVICES_DICOMPARSE_SPLITED=1
+      - SERVICES_AIICH=1
+      - SERVICES_AUTODEEPVESSEL=0
+      - TASK_AIICH_WAITINGFILETIME=7200
+      - TASK_AIICH_REQUESTFILEINTERVAL=3
+      - DOCKER_THUMBNAIL_DOCKERCONTAINERNAME=seal_thumbnail
+      - DOCKER_ICH_DOCKERCONTAINERNAME=seal_ich
+      - DOCKER_DICOMPARSER_DOCKERCONTAINERNAME=seal_dicomparser
+  thumbnail:
+    image: speedtest-oregon.keyayun.com:4443/utils/gen_thumbnail:v0.0.5
+    restart: always
+    container_name: seal_thumbnail
+    networks:
+      extnetwork:
+        ipv4_address: 172.19.0.24
+    volumes:
+      - ./workspace:/mnt
+    tty: true
+  redis:
+    image: redis
+    restart: always
+    container_name: redis
+    networks:
+      extnetwork:
+        ipv4_address: 172.19.0.13
+    volumes:
+      - ./db_data/redis_data:/data
+  ich:
+    image: speedtest-oregon.keyayun.com:4443/seal/ich-alg:v0.0.6
+    restart: always
+    container_name: seal_ich
+    networks:
+      extnetwork:
+        ipv4_address: 172.19.0.25
+    # runtime: nvidia
+    volumes:
+      - ./workspace:/mnt
+    tty: true
+  dicom-parser:
+    image: speedtest-oregon.keyayun.com:4443/utils/dicom_parser:v1.1.48-2
+    restart: always
+    container_name: seal_dicomparser
+    networks:
+      extnetwork:
+        ipv4_address: 172.19.0.26
+    volumes:
+      - ./workspace:/mnt
+    tty: true
+
+  ich-for-clario:
+    image: speedtest-oregon.keyayun.com:4443/seal/seal-runner-clario:201911061621
+    restart: always
+    container_name: ich-for-clario
+    ports:
+      - 8668:8668
+    depends_on:
+      - service
+    networks:
+      extnetwork:
+        ipv4_address: 172.19.0.31
+    # links:
+    #   - redis
+    volumes:
+      - ./logs:/ich-for-clario/logs
+      #- ./tools/ich:/ich-for-clario
+      - ./tools/hosts/ich-for-clario:/etc/hosts
+    environment:
+      - REDIS_ADDR=redis:6379
+      - CLARIO_TOKENID=aiich_ichtest:8080
+      - CLARIO_WORKLISTURL=http://httpbin.org/post
+      #- CLARIO_WORKLISTURL=http://47.105.123.85:8081/v1/feedback
+      - CLARIO_PRE_SHARED_KEY=worklist
+    #command: bash -c "cd /ich-for-clario/bin && ./ich-for-clario"

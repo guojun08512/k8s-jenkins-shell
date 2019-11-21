@@ -28,7 +28,7 @@ def createBranchName() {
 def prepareDockerSources(Path, Project) {
     stage('Go build') {
         withDockerContainer(args: '-v /home/pkg:/go/pkg', image: 'golang') {
-            sh "cd ${Path}/${Project}/web  && if [ ! -f  \"go.mod\" ];then go mod init goops/web && go mod tidy;else go mod tidy; fi && go build && cp web ../config.json ${Path} && cp -r grpc ${Path} && cp -r ../static/avatar ${Path} && cp -r template ${Path}"
+            sh "cd ${Path}/${Project}/web  && if [ ! -f  \"go.mod\" ];then go mod init goops/web && go mod tidy;else go mod tidy; fi && go build && cp web ../config.json ${Path} && cp -r grpc ${Path} && if [ \"${params.BRANCH}\" == \"dev\" ];then cp -r ../static/avatar ${Path}; fi && cp -r template ${Path} && cp -r template ${Path}"
         }
     }
 }

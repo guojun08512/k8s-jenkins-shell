@@ -1,0 +1,103 @@
+properties([
+    parameters([
+        gitParameter(branch: '',
+                     branchFilter: 'origin/(.*)',
+                     defaultValue: 'master',
+                     description: '',
+                     name: 'BRANCH',
+                     quickFilterEnabled: false,
+                     selectedValue: 'NONE',
+                     sortMode: 'NONE',
+                     tagFilter: '*',
+                     type: 'PT_BRANCH'),
+    ])
+])
+
+def pullCode(Path,Proj,GitRemote) {
+    stage('Code pull') {
+        ws("${Path}/${Proj}") {
+            git branch: "${params.BRANCH}", url: "${GitRemote}"
+        }
+    }
+}
+
+def createBranchName() {
+    addShortText(params.BRANCH)
+}
+
+def prepareSources(Path, Project, name) {
+    stage('Go build') {
+        if (name == "seal-runner-clario") {
+            withDockerContainer(args: '-v /home/pkg:/go/pkg', image: 'golang') {
+                sh "cd ${Path}/${Project}  && if [ ! -f  \"go.mod\" ];then go mod init keyayun.com/seal-runner && go mod tidy;else go mod tidy; fi && cd ich-for-clario && go build -o ich-clario && cp -r ./ich-clario ../config.yml ${Path}"
+            }
+        } else if (name == "seal-runner-gateway") {
+            withDockerContainer(args: '-v /home/pkg:/go/pkg', image: 'golang') {
+                sh "cd ${Path}/${Project}  && if [ ! -f  \"go.mod\" ];then go mod init keyayun.com/seal-runner && go mod tidy;else go mod tidy; fi && cd gateway && go build && cp -r gateway ../config.yml ${Path}"
+            }
+        } else if (name == "seal-runner-service") {
+            withDockerContainer(args: '-v /home/pkg:/go/pkg', image: 'golang') {
+                sh "cd ${Path}/${Project}  && if [ ! -f  \"go.mod\" ];then go mod init keyayun.com/seal-runner && go mod tidy;else go mod tidy; fi && cd services && go build -o service && cp -r service ../config.yml ${Path}"
+            }
+        }
+    }
+}
+
+def buildDocker(Path, date, name) {
+    withEnv(["date=${date}", "name=${name}"]){
+        ws("${Path}") {
+            sh label: '', script: '''cat > build.sh << EOF
+#!/bin/bash
+set -e
+dir="ops"
+name=${name}
+date=${date}
+
+if [ "\\${name}" == "seal-runner-gateway" ];then
+    cp Dockerfile_gateway Dockerfile;
+elif [ "\\${name}" == "seal-runner-service" ];then
+    cp Dockerfile_service Dockerfile;
+elif [ "\\${name}" == "seal-runner-clario" ];then
+    cp Dockerfile_clario Dockerfile;
+fi
+
+docker login https://harbor.bj.keyayun.com -u jks_registry -p CuraCloud30503
+docker build -t harbor.bj.keyayun.com/\\${dir}/\\${name}:\\${date} .
+docker tag harbor.bj.keyayun.com/\\${dir}/\\${name}:\\${date} harbor.bj.keyayun.com/\\${dir}/\\${name}:latest
+docker push harbor.bj.keyayun.com/\\${dir}/\\${name}:\\${date}
+docker push harbor.bj.keyayun.com/\\${dir}/\\${name}:latest
+docker image rm harbor.bj.keyayun.com/\\${dir}/\\${name}:\\${date}
+docker image rm harbor.bj.keyayun.com/\\${dir}/\\${name}:latest
+docker logout
+EOF
+    '''
+        sh 'chmod +x build.sh'
+        sh 'bash build.sh'
+        }
+    }
+}
+
+node {
+    Path='/home/ops/seal-runner'
+    Proj='seal-runner'
+    GitRemote='git@git.keyayun.com:keyayun/seal-runner.git'
+    pullCode(Path, Proj, GitRemote)
+    createBranchName()
+    date=sh returnStdout: true, script: "TZ=UTC-8 date +%Y%m%d%H%M | tr -s '\n' ' ' | sed s/[[:space:]]//g"
+    echo date
+    name="seal-runner-gateway"
+    stage("${name}") {
+        prepareSources(Path, Proj, name)
+        buildDocker(Path, date, name)
+    }
+    name="seal-runner-service"    
+    stage("${name}") {
+        prepareSources(Path, Proj, name)
+        buildDocker(Path, date, name)
+    }
+    name="seal-runner-clario"    
+    stage("${name}") {
+        prepareSources(Path, Proj, name)
+        buildDocker(Path, date, name)
+    } 
+}

@@ -132,26 +132,29 @@ docker volume create --driver local \
     --opt o=addr=192.168.8.71,rw \
     --opt device=:/couchbasebak \
     couchbase
-docker run --restart=always -d --name couchbase-db -p 8091-8094:8091-8094 -p 11210:11210 -v /home/curacloud/couchbase:/opt/couchbase/var -v couchbase:/bak couchbase
+docker run --restart=always -d --name couchbase-db -p 8091-8094:8091-8094 -p 11210:11210 -v /home/curacloud/couchbase:/opt/couchbase/var  couchbase
 
 docker volume create --driver local \
     --opt type=nfs \
     --opt o=addr=192.168.8.71,rw \
-    --opt device=:/k8s-test-env/data5 \
+    --opt device=:/csbj2-minio-data \
     minio
 
-docker run --restart=always -p 9000:9000 --name minio -v minio:/data -e "MINIO_ACCESS_KEY=admin" -e "MINIO_SECRET_KEY=curacloud" -d  minio/minio:RELEASE.2019-10-12T01-39-57Z server /data
+docker run --restart=always -p 9000:9000 --name minio -v minio:/data  -e "MINIO_ACCESS_KEY=admin" -e "MINIO_SECRET_KEY=curacloud" -d  minio/minio:RELEASE.2019-10-12T01-39-57Z server /data
 
-cbrestore backup-201910172143 http://127.0.0.1:8091 -u admin -p curacloud --bucket-source=activity --bucket-destination=activity
-cbrestore backup-201910172143 http://127.0.0.1:8091 -u admin -p curacloud --bucket-source=casbin --bucket-destination=casbin
-cbrestore backup-201910172143 http://127.0.0.1:8091 -u admin -p curacloud --bucket-source=data --bucket-destination=data
-cbrestore backup-201910172143 http://127.0.0.1:8091 -u admin -p curacloud --bucket-source=dirinfo --bucket-destination=dirinfo
-cbrestore backup-201910172143 http://127.0.0.1:8091 -u admin -p curacloud --bucket-source=file --bucket-destination=file
-cbrestore backup-201910172143 http://127.0.0.1:8091 -u admin -p curacloud --bucket-source=idp --bucket-destination=idp
-cbrestore backup-201910172143 http://127.0.0.1:8091 -u admin -p curacloud --bucket-source=jobs --bucket-destination=jobs
-cbrestore backup-201910172143 http://127.0.0.1:8091 -u admin -p curacloud --bucket-source=main --bucket-destination=main
-cbrestore backup-201910172143 http://127.0.0.1:8091 -u admin -p curacloud --bucket-source=meta --bucket-destination=meta
-cbrestore backup-201910172143 http://127.0.0.1:8091 -u admin -p curacloud --bucket-source=sys --bucket-destination=sys
+Date=`TZ=UTC-8 date +%Y%m%d%H%M`
+cbbackup http://127.0.0.1:8091 /bak/backup-${Date} -u admin -p curacloud
+
+cbrestore /bak http://127.0.0.1:8091 -u admin -p curacloud --bucket-source=activity --bucket-destination=activity
+cbrestore /bak http://127.0.0.1:8091 -u admin -p curacloud --bucket-source=casbin --bucket-destination=casbin
+cbrestore /bak http://127.0.0.1:8091 -u admin -p curacloud --bucket-source=data --bucket-destination=data
+cbrestore /bak http://127.0.0.1:8091 -u admin -p curacloud --bucket-source=dirinfo --bucket-destination=dirinfo
+cbrestore /bak http://127.0.0.1:8091 -u admin -p curacloud --bucket-source=file --bucket-destination=file
+cbrestore /bak http://127.0.0.1:8091 -u admin -p curacloud --bucket-source=idp --bucket-destination=idp
+cbrestore /bak http://127.0.0.1:8091 -u admin -p curacloud --bucket-source=jobs --bucket-destination=jobs
+cbrestore /bak http://127.0.0.1:8091 -u admin -p curacloud --bucket-source=main --bucket-destination=main
+cbrestore /bak http://127.0.0.1:8091 -u admin -p curacloud --bucket-source=meta --bucket-destination=meta
+cbrestore /bak http://127.0.0.1:8091 -u admin -p curacloud --bucket-source=sys --bucket-destination=sys
 
 <!-- sz -->
 docker volume create --driver local \
@@ -159,7 +162,8 @@ docker volume create --driver local \
     --opt o=addr=172.10.10.144,rw \
     --opt device=:/couchbase-bak \
     couchbase
-docker run --restart=always -d --name couchbase-db -p 8091-8094:8091-8094 -p 11210:11210 -v /home/curacloud/couchbase:/opt/couchbase/var -v couchbase:/bak couchbase
+docker run --restart=always -d --name couchbase -p 8091-8094:8091-8094 -p 11210:11210 -v /home/curacloud/couchbase:/opt/couchbase/var -v /home/curacloud/bak:/bak couchbase
+docker run --restart=always -d --name couchbase -p 8091-8094:8091-8094 -p 11210:11210 -v /home/curacloud/couchbase:/opt/couchbase/var couchbase
 cbrestore /bak/backup-201910151252 http://127.0.0.1:8091 -u admin -p curacloud --bucket-source=activity --bucket-destination=activity
 cbrestore /bak/backup-201910151252 http://127.0.0.1:8091 -u admin -p curacloud --bucket-source=casbin --bucket-destination=casbin
 cbrestore /bak/backup-201910151252 http://127.0.0.1:8091 -u admin -p curacloud --bucket-source=data --bucket-destination=data
@@ -213,3 +217,10 @@ mc mirror -a oldresource/file-v2/ newresource/file-v2
 
 
 http://172.10.10.144:8080/cgi-bin/   username: admin password : @aQ4HQy0^Mqp
+
+
+global__IndexViewsVersion
+
+
+cbbackupmgr config --archive /bak/data --repo bak
+cbbackupmgr backup -a /bak-data -r bak -c http://127.0.0.1:8091 -u admin -p curacloud

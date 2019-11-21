@@ -1,0 +1,22 @@
+version: "3.7"
+networks:
+  extnetwork:
+    ipam:
+      config:
+      - subnet: 172.19.0.0/16
+services:
+  service:
+    image: harbor.bj.keyayun.com/seal/service:latest
+    restart: always
+    container_name: service
+    ports:
+      - 7070:7070
+      - 8080:8080
+      - 6060:6060
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /usr/bin/docker:/usr/bin/docker
+      - ./conf:/usr/etc/seal
+      - ./apps:/apps
+    tty: true
+    command: bash -c "service-stack-linux-amd64 serve -c /usr/etc/seal/conf.yml --dev --allow-root"

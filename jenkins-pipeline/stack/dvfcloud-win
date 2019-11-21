@@ -1,0 +1,92 @@
+properties([
+    parameters([
+        gitParameter(branch: '',
+                     branchFilter: 'origin/(.*)',
+                     defaultValue: 'master',
+                     description: '',
+                     name: 'BRANCH',
+                     quickFilterEnabled: false,
+                     selectedValue: 'NONE',
+                     sortMode: 'NONE',
+                     tagFilter: '*',
+                     type: 'PT_BRANCH'),
+    ])
+])
+
+def pullCode(GitPath) {
+    git branch: "${params.BRANCH}", url: "${GitPath}"
+}
+
+def dockerAppLibYarn() {
+    withDockerContainer(image: 'node:8.16.0-stretch') {
+        sh "cd ${WORKSPACE} && npm config set @cc:registry http://sinopia.curacloudplatform.com:4873/ && yarn install && yarn upgrade cozy-bar"
+    }
+}
+
+def dockerElectronuserlandBuilder() {
+    withDockerContainer(args: '--env ELECTRON_CACHE="/root/.cache/electron" --env ELECTRON_BUILDER_CACHE="/root/.cache/electron-builder"', image: 'electronuserland/builder:wine') {
+        sh "cd ${WORKSPACE} && yarn pack-win"
+    }
+}
+
+
+def createBranchName(Version) {
+    addShortText background: 'white', border: 1, color: 'green', text: "${params.BRANCH}"
+    addShortText background: 'white', border: 1, color: 'green', text: "v${Version}"
+}
+
+def bakAppZip(Name) {
+    sh "cd ${WORKSPACE} && tar -zcvf ${Name}_build_${BUILD_ID}.tar.gz dist"
+    archiveArtifacts artifacts: "${Name}_build_${BUILD_ID}.tar.gz"
+}
+
+def createVersion(VersionPath) {
+    getVersion="cd ${VersionPath} && git describe --dirty --abbrev=8 --tags --always | sed s/^[v]//g"
+    Version=sh returnStdout: true, script: getVersion
+    getTag="cd ${VersionPath} && git tag"
+    tag=sh returnStdout: true, script: getTag
+    if (tag=="") {
+        getCommitCount="cd ${VersionPath} && git log | grep -e 'commit [a-zA-Z0-9]*' | wc -l | tr -s '\n' ' ' | sed s/[[:space:]]//g"
+        commitCount=sh returnStdout: true, script: getCommitCount
+        tag="0.0.0"
+        Version="${tag}-${commitCount}-${Version}"
+    }
+    return Version
+}
+
+
+def build(Name) {
+    try{
+        stage("${Name}") {
+            GitPath="git@git.keyayun.com:keyayun/${Name}.git"
+            if (Name == "activities") {
+                GitPath="git@git.keyayun.com:keyayun/activity.git"
+            } else if (Name == "contacts") {
+                GitPath="git@git.keyayun.com:keyayun/contact.git"
+            } else if (Name == "settings") {
+                GitPath="git@git.keyayun.com:keyayun/setting.git"
+            } else if (Name == "comments") {
+                GitPath="git@git.keyayun.com:keyayun/comment.git"
+            } else if (Name == "tags") {
+                GitPath="git@git.keyayun.com:keyayun/tag.git"
+            }
+            echo GitPath
+            pullCode(GitPath)
+            VersionPath="${WORKSPACE}"
+            Version=createVersion(VersionPath)
+            echo Version
+
+            createBranchName(Version)
+            dockerAppLibYarn()
+            dockerElectronuserlandBuilder()
+            bakAppZip(Name)
+        }
+    } catch (e) {
+        currentBuild.result = 'FAIL'
+        result = "FAIL"
+    }
+}
+
+node {
+    build("dvfcloud")
+}

@@ -4,14 +4,10 @@ metadata:
   name: ingress-nginx
   namespace: ingress-nginx
   labels:
-    app.kubernetes.io/name: ingress-nginx
+    app.kubernetes.io/name: kubernetes-dashboard
     app.kubernetes.io/part-of: ingress-nginx
 spec:
-  # externalIPs: # 静态ip
-  # - 192.168.200.161
-  # - 192.168.200.163 
-  # externalTrafficPolicy: Local
-  type: LoadBalancer
+  type: NodePort
   selector:
     app.kubernetes.io/name: ingress-nginx
     app.kubernetes.io/part-of: ingress-nginx
@@ -19,11 +15,3 @@ spec:
     - name: http
       port: 80
       targetPort: http
-    - name: https
-      port: 443
-      targetPort: https
-    - name: jenkins-tcp-9000
-      port: 8080
-      targetPort: 8080
-      protocol: TCP
----
