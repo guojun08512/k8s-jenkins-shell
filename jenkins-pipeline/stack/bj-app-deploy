@@ -57,7 +57,11 @@ echo \\${app}
 #### apps
 for instance in haoc.csbj2.keyayun.com yet.csbj2.keyayun.com jianxiaz.csbj2.keyayun.com yud.csbj2.keyayun.com doctor1.csbj2.keyayun.com doctor2.csbj2.keyayun.com zhengt.csbj2.keyayun.com ningl.csbj2.keyayun.com zhanghc.csbj2.keyayun.com huiyangz.csbj2.keyayun.com jung.csbj2.keyayun.com bochaoc.csbj2.keyayun.com ningliu.csbj2.keyayun.com zheny.csbj2.keyayun.com anzhuc.csbj2.keyayun.com feil.csbj2.keyayun.com xinghunm.csbj2.keyayun.com
 do
-    docker exec -t \\$dockerID bash -c "/usr/bin/service-stack-linux-amd64 -c /usr/etc/seal/conf.yml apps --domain \\${instance} \\$control \\$appname registry://\\$app"
+    count=\\$(docker exec -t \\$dockerID bash -c "/usr/bin/service-stack-linux-amd64 -c /usr/etc/seal/conf.yml apps ls --domain \\${instance} "|grep \\${appname} | wc -l)
+    condition=\\$(echo \\$count | awk -v tem=0 '{print(\\$1>tem)? "1":"0"}')
+    if [ \\${condition} -eq "1" ];then
+        docker exec -t \\$dockerID bash -c "/usr/bin/service-stack-linux-amd64 -c /usr/etc/seal/conf.yml apps --domain \\${instance} \\$control \\$appname registry://\\$app"
+    fi
 done
 EOF
     '''

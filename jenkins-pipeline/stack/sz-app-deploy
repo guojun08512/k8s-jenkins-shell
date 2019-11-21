@@ -31,8 +31,8 @@ EOF
         sh label: '', script: ''' cat > doUpdate.sh << EOF
 #!/bin/bash
 dockerID=\\$(docker ps | grep harbor.sz.keyayun.com/seal/app-register-service | awk '{print \\$1}' | head -n 1)
-docker exec -t \\$dockerID bash -c "chmod +x /home/updateRegistryApp.sh && bash /home/updateRegistryApp.sh && rm -rf /home/updateRegistryApp.sh && rm -rf /home/${APP_NAME}.tar.gz"
-#docker exec -t \\$dockerID bash -c "chmod +x /home/updateRegistryApp.sh && bash /home/updateRegistryApp.sh"
+#docker exec -t \\$dockerID bash -c "chmod +x /home/updateRegistryApp.sh && bash /home/updateRegistryApp.sh && rm -rf /home/updateRegistryApp.sh && rm -rf /home/${APP_NAME}.tar.gz"
+docker exec -t \\$dockerID bash -c "chmod +x /home/updateRegistryApp.sh && bash /home/updateRegistryApp.sh"
 EOF
     '''
                         sshPublisher(publishers: [sshPublisherDesc(configName: '172.10.10.88', transfers: [sshTransfer(cleanRemote: false, excludes: '', execCommand: 'chmod +x stack/appRegistry/doUpdate.sh && bash stack/appRegistry/doUpdate.sh && rm -rf stack/appRegistry/doUpdate.sh', execTimeout: 120000, flatten: false, makeEmptyDirs: false, noDefaultExcludes: false, patternSeparator: '[, ]+', remoteDirectory: 'stack/appRegistry', remoteDirectorySDF: false, removePrefix: '', sourceFiles: "updateRegistryApp.sh,doUpdate.sh,${APP_NAME}.tar.gz")], usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: false)])
@@ -46,18 +46,22 @@ EOF
                     withEnv(["APP_NAME=${appname}", "APP_VERSION=${version}"]) {
         sh label: '', script: ''' cat > doUpdate.sh << EOF
 #!/bin/bash
-dockerID=\\$(docker ps | grep harbor.bj.keyayun.com/seal/service | awk '{print \\$1}' | head -n 1)
+dockerID=\\$(docker ps | grep harbor.sz.keyayun.com/seal/service | awk '{print \\$1}' | head -n 1)
 control=update
 app=${APP_NAME}
-if [ "\\${name}" == "deepvesselapp" ];then
+appname=${APP_NAME}
+if [ "\\${app}" == "deepvesselapp" ];then
     app="deepvessel"
 fi
 echo \\${app}
 #### apps
-for instance in xiaoyangx binouy dongfangl shuyil doctor3 doctor4
-instance=\\${instance}.cssz.keyayun.com
+for instance in xiaoyangx binouy dongfangl shuyil doctor3 doctor4 zhimind
 do
-    docker exec -t \\$dockerID bash -c "/usr/bin/service-stack-linux-amd64 -c /usr/etc/seal/conf.yml apps --domain \\${instance} \\$control \\$app registry://\\$app"
+    count=\\$(docker exec -t \\$dockerID bash -c "/usr/bin/service-stack-linux-amd64 -c /usr/etc/seal/conf.yml apps ls --domain \\${instance} "|grep \\${appname} | wc -l)
+    condition=\\$(echo \\$count | awk -v tem=0 '{print(\\$1>tem)? "1":"0"}')
+    if [ \\${condition} -eq "1" ];then
+        docker exec -t \\$dockerID bash -c "/usr/bin/service-stack-linux-amd64 -c /usr/etc/seal/conf.yml apps --domain \\${instance}.cssz.keyayun.com \\$control \\$appname registry://\\$app"
+    fi
 done
 EOF
     '''
